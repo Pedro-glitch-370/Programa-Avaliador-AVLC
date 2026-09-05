@@ -1,6 +1,8 @@
 import importlib.util
+import json
 import multiprocessing
 import os
+import shutil
 import sys
 import time
 import numpy as np
@@ -143,16 +145,39 @@ def avaliar_submissao(
 
     return resultado
 
+#função pra salvar o código da equipe e seu resultado na devida pasta
+def salvar_submissao_equipe(
+    numero_equipe, caminho_codigo_enviado, resultado_avaliacao
+):
+    diretorio_base = "submissoes_armazenadas"
+    nome_pasta_equipe = f"equipe_{numero_equipe}"
+    diretorio_equipe = os.path.join(diretorio_base, nome_pasta_equipe)
+    os.makedirs(diretorio_equipe, exist_ok=True)
+
+    #copiar o código .py enviado
+    destino_codigo = os.path.join(diretorio_equipe, "codigo_submetido.py")
+    shutil.copy(caminho_codigo_enviado, destino_codigo)
+
+    #converte numpy array para lista pra poder salvamento em JSON
+    resultado_para_json = resultado_avaliacao.copy()
+    if (
+        "matriz_retornada" in resultado_para_json
+        and resultado_para_json["matriz_retornada"] is not None
+    ):
+        if isinstance(resultado_para_json["matriz_retornada"], np.ndarray):
+            resultado_para_json["matriz_retornada"] = resultado_para_json["matriz_retornada"].tolist()
+
+    #salvar o JSON estruturado
+    caminho_json = os.path.join(diretorio_equipe, "resultado.json")
+    with open(caminho_json, "w", encoding="utf-8") as f:
+        json.dump(resultado_para_json, f, indent=4, ensure_ascii=False)
+
 #bloco de teste mockado
 if __name__ == "__main__":
 
     #criar dados mockados oficiais
-    gabarito_mock = np.array(
-        [[2.0, 5.0, 1.0], [4.0, 8.0, 6.0], [7.0, 3.0, 9.0]]
-    )
-    mascara_mock = np.array(
-        [[True, False, True], [False, True, False], [True, False, True]]
-    )
+    gabarito_mock = np.array([[2.0, 5.0, 1.0], [4.0, 8.0, 6.0], [7.0, 3.0, 9.0]])
+    mascara_mock = np.array([[True, False, True], [False, True, False], [True, False, True]])
     observada_mock = np.where(mascara_mock, gabarito_mock, np.nan)
 
     #teste do timeout de 3 segundos
@@ -166,9 +191,12 @@ def principal(observada, mascara):
     with open("solucao_aluno_mock.py", "w") as f:
         f.write(codigo_exemplo_aluno)
 
+    #simulando com equipe 1
+    id_equipe = 1
     res = avaliar_submissao(
         "solucao_aluno_mock.py", observada_mock, mascara_mock, gabarito_mock, timeout_seg=3
     )
+    salvar_submissao_equipe(id_equipe, "solucao_aluno_mock.py", res)
 
     print("\nResultado do Avaliador:")
     for chave, valor in res.items():
@@ -187,6 +215,8 @@ def principal(observada, mascara):
     with open("solucao_aluno_timeout.py", "w") as f:
         f.write(codigo_loop_infinito)
 
+    #simulando com equipe 2
+    id_equipe = 2
     res_timeout = avaliar_submissao(
         "solucao_aluno_timeout.py",
         observada_mock,
@@ -194,6 +224,7 @@ def principal(observada, mascara):
         gabarito_mock,
         timeout_seg=2,
     )
+    salvar_submissao_equipe(id_equipe, "solucao_aluno_timeout.py", res)
 
     print("\nResultado do Avaliador:")
     for chave, valor in res_timeout.items():
