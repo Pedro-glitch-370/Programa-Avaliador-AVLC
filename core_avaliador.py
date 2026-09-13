@@ -166,10 +166,11 @@ def avaliar_todas_as_matrizes(caminho_arquivo_py, banco_10_matrizes, timeout_tot
     return fila_comunicacao.get()
 
 #função pra salvar o código enviado e registrar o histórico localmente
-def salvar_historico_local(caminho_codigo_enviado, relatorio):
+def salvar_historico_local(caminho_codigo_enviado, relatorio, equipe_id):
     
     #criar o armazenamento persistente das submissões
     diretorio_base = "historico_local_tentativas"
+    diretorio_base = os.path.join(diretorio_base, f"equipe_{equipe_id}")
     os.makedirs(diretorio_base, exist_ok=True)
 
     #carregar a lista de tentativas anteriores de historico.json para a memória
@@ -190,6 +191,7 @@ def salvar_historico_local(caminho_codigo_enviado, relatorio):
 
     #empacotar os metadados da tentativa e adicionar ao histórico geral
     nova_entrada = {
+        "equipe_id": equipe_id,
         "timestamp": timestamp_str,
         "arquivo_codigo": nome_codigo_salvo,
         "resultado": relatorio,
