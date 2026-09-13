@@ -1,231 +1,182 @@
 import importlib.util
 import json
-import multiprocessing
 import os
 import shutil
 import sys
 import time
 import numpy as np
+import multiprocessing
 
-#função pra importar dinamicamente o arquivo .py enviado pela equipe
-def carregar_modulo_aluno(caminho_arquivo_py):
-    try:
-        caminho_absoluto = os.path.abspath(caminho_arquivo_py)
-        nome_modulo = "codigo_aluno_temp"
 
-        spec = importlib.util.spec_from_file_location(
-            nome_modulo, caminho_absoluto
-        )
-        if spec is None or spec.loader is None:
-            return None
+def _tarefa_lote_processo(caminho_arquivo_py, banco_10_matrizes, fila_comunicacao):
+  """Executa o código do aluno contra todas as matrizes em um único processo."""
+  try:
+    # Importação dinâmica do código do aluno (feita apenas 1 vez)
+    caminho_absoluto = os.path.abspath(caminho_arquivo_py)
+    nome_modulo = "codigo_aluno_temp"
 
-        modulo = importlib.util.module_from_spec(spec)
-        sys.modules[nome_modulo] = modulo
-        spec.loader.exec_module(modulo)
-        return modulo
-    except Exception as e:
-        print(f"Erro na importação: {e}")
-        return None
+    spec = importlib.util.spec_from_file_location(nome_modulo, caminho_absoluto)
+    if spec is None or spec.loader is None:
+      fila_comunicacao.put({
+          "status_geral": "Erro de Estrutura",
+          "mensagem_erro": "O arquivo não pôde ser importado.",
+      })
+      return
 
-#função pra isolar e rodar o código em processo separado
-def _tarefa_processo_aluno(
-    caminho_arquivo_py, matriz_observada, mascara, fila_comunicacao
-):
-    try:
-        modulo_aluno = carregar_modulo_aluno(caminho_arquivo_py)
-        if not modulo_aluno or not hasattr(modulo_aluno, "principal"):
-            fila_comunicacao.put({
-                "status": "Erro de Estrutura",
-                "mensagem_erro": (
-                    "O arquivo não pôde ser importado ou não contém a função"
-                    " 'principal(observada, mascara)'."
-                ),
-            })
-            return
+    modulo_aluno = importlib.util.module_from_spec(spec)
+    sys.modules[nome_modulo] = modulo_aluno
+    spec.loader.exec_module(modulo_aluno)
 
-        inicio = time.perf_counter()
-        matriz_saida = modulo_aluno.principal(matriz_observada, mascara)
-        fim = time.perf_counter()
+    if not hasattr(modulo_aluno, "principal"):
+      fila_comunicacao.put({
+          "status_geral": "Erro de Estrutura",
+          "mensagem_erro": "O arquivo não contém a função 'principal(observada, mascara)'.",
+      })
+      return
 
+    detalhes_por_matriz = []
+    nrmses_validos = []
+    tempo_total = 0.0
+
+    # Itera pelas 10 matrizes no mesmo processo
+    for idx, dados_matriz in enumerate(banco_10_matrizes):
+      obs = dados_matriz["observada"]
+      mascara = dados_matriz["mascara"]
+      gabarito = dados_matriz["gabarito"]
+
+      inicio = time.perf_counter()
+      try:
+        matriz_saida = modulo_aluno.principal(obs, mascara)
+      except Exception as e:
         fila_comunicacao.put({
-            "status": "Executado",
-            "tempo_execucao": round(fim - inicio, 6),
-            "matriz_retornada": matriz_saida,
+            "status_geral": f"Reprovado na Matriz #{idx + 1}: Erro de Execução",
+            "mensagem_erro": str(e),
         })
-    except Exception as e:
-        fila_comunicacao.put(
-            {"status": "Erro de Execução", "mensagem_erro": str(e)}
-        )
+        return
+      fim = time.perf_counter()
 
-#função pra executar o código do aluno e retornar um dict estruturado
-def avaliar_submissao(
-    caminho_arquivo_py, matriz_observada, mascara, gabarito_oficial, timeout_seg=3
-):
-    #padrão do dicionário de resultados
-    resultado = {
-        "status": "Erro Desconhecido",
-        "tempo_execucao": 0.0,
-        "erro_rmse": None,
-        "mensagem_erro": None,
-        "matriz_retornada": None,
-    }
+      tempo_exec = fim - inicio
+      tempo_total += tempo_exec
 
-    #fila pra receber os dados de dentro do processo isolado
-    fila_comunicacao = multiprocessing.Queue()
-
-    #configur o processo isolado
-    p = multiprocessing.Process(
-        target=_tarefa_processo_aluno,
-        args=(
-            caminho_arquivo_py,
-            matriz_observada,
-            mascara,
-            fila_comunicacao,
-        ),
-    )
-
-    p.start()
-    p.join(timeout=timeout_seg)
-
-    #verificar se o processo estourou o timeout
-    if p.is_alive():
-        p.terminate()
-        p.join()
-        resultado["status"] = "Reprovado (Timeout excedido)"
-        resultado["mensagem_erro"] = (
-            f"A execução ultrapassou o limite máximo de {timeout_seg} segundos."
-        )
-        return resultado
-
-    #se terminou mas a fila tá vazia, houve algum erro crítico no processo
-    if fila_comunicacao.empty():
-        resultado["status"] = "Erro de Execução"
-        resultado["mensagem_erro"] = "O processo encerrou inesperadamente."
-        return resultado
-
-    #recuperar o que o processo isolado devolveu
-    dados_execucao = fila_comunicacao.get()
-
-    if dados_execucao["status"] != "Executado":
-        resultado["status"] = dados_execucao["status"]
-        resultado["mensagem_erro"] = dados_execucao.get("mensagem_erro")
-        return resultado
-
-    resultado["tempo_execucao"] = dados_execucao["tempo_execucao"]
-    matriz_saida = dados_execucao["matriz_retornada"]
-    resultado["matriz_retornada"] = matriz_saida
-
-    #validar a matriz retornada pela equipe
-    if not isinstance(matriz_saida, np.ndarray):
+      # Validações de tipo e formato
+      if not isinstance(matriz_saida, np.ndarray):
         matriz_saida = np.array(matriz_saida)
 
-    if matriz_saida.shape != gabarito_oficial.shape:
-        resultado["status"] = "Reprovado (Dimensões Incorretas)"
-        return resultado
+      if matriz_saida.shape != gabarito.shape:
+        fila_comunicacao.put({
+            "status_geral": f"Reprovado na Matriz #{idx + 1}: Reprovado (Dimensões Incorretas)",
+            "mensagem_erro": f"Esperado {gabarito.shape}, retornado {matriz_saida.shape}",
+        })
+        return
 
-    if np.isnan(matriz_saida).any():
-        resultado["status"] = "Reprovado (Contém valores NaNs)"
-        return resultado
+      if np.isnan(matriz_saida).any():
+        fila_comunicacao.put({
+            "status_geral": f"Reprovado na Matriz #{idx + 1}: Reprovado (Contém valores NaNs)",
+            "mensagem_erro": "A matriz retornada possui valores NaN não preenchidos.",
+        })
+        return
 
-    #calcular erro agregado
-    posicoes_ocultas = ~mascara
-    if not posicoes_ocultas.any():
-        resultado["status"] = "Aviso: Nenhuma posição oculta encontrada."
-        resultado["erro_rmse"] = 0.0
-    else:
+      # Cálculo do NRMSE estritamente nas posições ocultas
+      posicoes_ocultas = ~mascara
+      if not posicoes_ocultas.any():
+        nrmse = 0.0
+        rmse_bruto = 0.0
+      else:
         valores_aluno = matriz_saida[posicoes_ocultas]
-        valores_gabarito = gabarito_oficial[posicoes_ocultas]
+        valores_gabarito = gabarito[posicoes_ocultas]
 
-        #RMSE (Raiz do Erro Quadrático Médio)
-        mse = np.mean((valores_aluno - valores_gabarito) ** 2)
-        rmse = np.sqrt(mse)
+        rmse = np.sqrt(np.mean((valores_aluno - valores_gabarito) ** 2))
+        amplitude = np.max(gabarito) - np.min(gabarito)
+        nrmse = rmse / amplitude if amplitude > 0 else rmse
 
-        resultado["status"] = "Sucesso"
-        resultado["erro_rmse"] = round(float(rmse), 4)
+      nrmses_validos.append(nrmse)
+      detalhes_por_matriz.append({
+          "matriz_id": idx + 1,
+          "status": "Sucesso",
+          "tempo": round(tempo_exec, 6),
+          "rmse_bruto": round(float(rmse), 6),
+          "nrmse": round(float(nrmse), 6),
+      })
 
-    return resultado
+    nrmse_medio = np.mean(nrmses_validos) if nrmses_validos else 0.0
 
-#função pra salvar o código da equipe e seu resultado na devida pasta
-def salvar_submissao_equipe(
-    numero_equipe, caminho_codigo_enviado, resultado_avaliacao
-):
-    diretorio_base = "submissoes_armazenadas"
-    nome_pasta_equipe = f"equipe_{numero_equipe}"
-    diretorio_equipe = os.path.join(diretorio_base, nome_pasta_equipe)
-    os.makedirs(diretorio_equipe, exist_ok=True)
+    # Retorna o relatório completo de sucesso
+    fila_comunicacao.put({
+        "status_geral": "Sucesso",
+        "nrmse_medio_agregado": round(float(nrmse_medio), 6),
+        "tempo_total_acumulado": round(tempo_total, 6),
+        "detalhes_por_matriz": detalhes_por_matriz,
+        "mensagem_erro": None,
+    })
 
-    #copiar o código .py enviado
-    destino_codigo = os.path.join(diretorio_equipe, "codigo_submetido.py")
-    shutil.copy(caminho_codigo_enviado, destino_codigo)
+  except Exception as e:
+    fila_comunicacao.put({
+        "status_geral": "Erro Crítico de Processamento",
+        "mensagem_erro": str(e),
+    })
 
-    #converte numpy array para lista pra poder salvamento em JSON
-    resultado_para_json = resultado_avaliacao.copy()
-    if (
-        "matriz_retornada" in resultado_para_json
-        and resultado_para_json["matriz_retornada"] is not None
-    ):
-        if isinstance(resultado_para_json["matriz_retornada"], np.ndarray):
-            resultado_para_json["matriz_retornada"] = resultado_para_json["matriz_retornada"].tolist()
 
-    #salvar o JSON estruturado
-    caminho_json = os.path.join(diretorio_equipe, "resultado.json")
-    with open(caminho_json, "w", encoding="utf-8") as f:
-        json.dump(resultado_para_json, f, indent=4, ensure_ascii=False)
+def avaliar_todas_as_matrizes(caminho_arquivo_py, banco_10_matrizes, timeout_total_seg=5):
+  """Orquestra a avaliação completa em um único processo isolado com timeout global."""
+  ctx = multiprocessing.get_context("spawn")
+  fila_comunicacao = ctx.Queue()
 
-#bloco de teste mockado
-if __name__ == "__main__":
+  p = ctx.Process(
+      target=_tarefa_lote_processo,
+      args=(caminho_arquivo_py, banco_10_matrizes, fila_comunicacao),
+  )
 
-    #criar dados mockados oficiais
-    gabarito_mock = np.array([[2.0, 5.0, 1.0], [4.0, 8.0, 6.0], [7.0, 3.0, 9.0]])
-    mascara_mock = np.array([[True, False, True], [False, True, False], [True, False, True]])
-    observada_mock = np.where(mascara_mock, gabarito_mock, np.nan)
+  p.start()
+  p.join(timeout=timeout_total_seg)
 
-    #teste do timeout de 3 segundos
-    codigo_exemplo_aluno = """
-import numpy as np
-def principal(observada, mascara):
-    # Simulando um código normal que roda rápido
-    gabarito_perfeito = np.array([[2.0, 5.0, 1.0], [4.0, 8.0, 6.0], [7.0, 3.0, 9.0]])
-    return gabarito_perfeito
-"""
-    with open("solucao_aluno_mock.py", "w") as f:
-        f.write(codigo_exemplo_aluno)
+  if p.is_alive():
+    p.terminate()
+    p.join()
+    return {
+        "status_geral": "Reprovado (Timeout excedido)",
+        "nrmse_medio_agregado": None,
+        "tempo_total_acumulado": timeout_total_seg,
+        "detalhes_por_matriz": [],
+        "mensagem_erro": f"A execução total ultrapassou o limite de {timeout_total_seg} segundos para o lote.",
+    }
 
-    #simulando com equipe 1
-    id_equipe = 1
-    res = avaliar_submissao(
-        "solucao_aluno_mock.py", observada_mock, mascara_mock, gabarito_mock, timeout_seg=3
-    )
-    salvar_submissao_equipe(id_equipe, "solucao_aluno_mock.py", res)
+  if fila_comunicacao.empty():
+    return {
+        "status_geral": "Erro de Execução",
+        "nrmse_medio_agregado": None,
+        "tempo_total_acumulado": 0.0,
+        "detalhes_por_matriz": [],
+        "mensagem_erro": "O processo encerrou inesperadamente.",
+    }
 
-    print("\nResultado do Avaliador:")
-    for chave, valor in res.items():
-        if chave == "tempo_execucao" and valor is not None:
-            print(f"  {chave}: {valor:.6f}")
-        else:
-            print(f"  {chave}: {valor}")
+  return fila_comunicacao.get()
 
-    #teste com loop infinito
-    codigo_loop_infinito = """
-import time
-def principal(observada, mascara):
-    while True:
-        time.sleep(1)
-"""
-    with open("solucao_aluno_timeout.py", "w") as f:
-        f.write(codigo_loop_infinito)
 
-    #simulando com equipe 2
-    id_equipe = 2
-    res_timeout = avaliar_submissao(
-        "solucao_aluno_timeout.py",
-        observada_mock,
-        mascara_mock,
-        gabarito_mock,
-        timeout_seg=2,
-    )
-    salvar_submissao_equipe(id_equipe, "solucao_aluno_timeout.py", res)
+def salvar_historico_local(caminho_codigo_enviado, relatorio):
+  """Salva uma cópia do código testado e registra o histórico localmente."""
+  diretorio_base = "historico_local_tentativas"
+  os.makedirs(diretorio_base, exist_ok=True)
 
-    print("\nResultado do Avaliador:")
-    for chave, valor in res_timeout.items():
-        print(f"  {chave}: {valor}")
+  caminho_historico = os.path.join(diretorio_base, "historico.json")
+  historico_geral = []
+
+  if os.path.exists(caminho_historico):
+    try:
+      with open(caminho_historico, "r", encoding="utf-8") as f:
+        historico_geral = json.load(f)
+    except Exception:
+      historico_geral = []
+
+  timestamp_str = time.strftime("%Y-%m-%d_%H-%M-%S")
+  nome_codigo_salvo = f"codigo_{timestamp_str}.py"
+  shutil.copy(caminho_codigo_enviado, os.path.join(diretorio_base, nome_codigo_salvo))
+
+  nova_entrada = {
+      "timestamp": timestamp_str,
+      "arquivo_codigo": nome_codigo_salvo,
+      "resultado": relatorio,
+  }
+  historico_geral.append(nova_entrada)
+
+  with open(caminho_historico, "w", encoding="utf-8") as f:
+    json.dump(historico_geral, f, indent=4, ensure_ascii=False)

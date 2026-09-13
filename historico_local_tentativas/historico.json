@@ -1,0 +1,214 @@
+[
+    {
+        "timestamp": "2026-09-13_10-04-41",
+        "arquivo_codigo": "codigo_2026-09-13_10-04-41.py",
+        "resultado": {
+            "status_geral": "Reprovado na Matriz #1: Reprovado (Timeout excedido)",
+            "nrmse_medio_agregado": null,
+            "tempo_total_acumulado": 0.0,
+            "detalhes_por_matriz": [
+                {
+                    "matriz_id": 1,
+                    "status": "Reprovado (Timeout excedido)"
+                }
+            ],
+            "mensagem_erro": "A execução ultrapassou o limite de 1s."
+        }
+    },
+    {
+        "timestamp": "2026-09-13_10-07-23",
+        "arquivo_codigo": "codigo_2026-09-13_10-07-23.py",
+        "resultado": {
+            "status_geral": "Reprovado na Matriz #1: Reprovado (Timeout excedido)",
+            "nrmse_medio_agregado": null,
+            "tempo_total_acumulado": 0.0,
+            "detalhes_por_matriz": [
+                {
+                    "matriz_id": 1,
+                    "status": "Reprovado (Timeout excedido)"
+                }
+            ],
+            "mensagem_erro": "A execução ultrapassou o limite de 3s."
+        }
+    },
+    {
+        "timestamp": "2026-09-13_10-09-18",
+        "arquivo_codigo": "codigo_2026-09-13_10-09-18.py",
+        "resultado": {
+            "status_geral": "Reprovado na Matriz #1: Reprovado (Timeout excedido)",
+            "nrmse_medio_agregado": null,
+            "tempo_total_acumulado": 0.0,
+            "detalhes_por_matriz": [
+                {
+                    "matriz_id": 1,
+                    "status": "Reprovado (Timeout excedido)"
+                }
+            ],
+            "mensagem_erro": "A execução ultrapassou o limite de 3s."
+        }
+    },
+    {
+        "timestamp": "2026-09-13_10-11-41",
+        "arquivo_codigo": "codigo_2026-09-13_10-11-41.py",
+        "resultado": {
+            "status_geral": "Sucesso",
+            "nrmse_medio_agregado": 0.019139,
+            "tempo_total_acumulado": 0.015075,
+            "detalhes_por_matriz": [
+                {
+                    "matriz_id": 1,
+                    "status": "Sucesso",
+                    "tempo": 0.00255,
+                    "rmse_bruto": 1.027918,
+                    "nrmse": 0.051281
+                },
+                {
+                    "matriz_id": 2,
+                    "status": "Sucesso",
+                    "tempo": 0.003074,
+                    "rmse_bruto": 9.5e-05,
+                    "nrmse": 3e-06
+                },
+                {
+                    "matriz_id": 3,
+                    "status": "Sucesso",
+                    "tempo": 0.001371,
+                    "rmse_bruto": 0.301481,
+                    "nrmse": 0.003998
+                },
+                {
+                    "matriz_id": 4,
+                    "status": "Sucesso",
+                    "tempo": 0.001118,
+                    "rmse_bruto": 0.002495,
+                    "nrmse": 5.3e-05
+                },
+                {
+                    "matriz_id": 5,
+                    "status": "Sucesso",
+                    "tempo": 0.000952,
+                    "rmse_bruto": 0.545781,
+                    "nrmse": 0.033785
+                },
+                {
+                    "matriz_id": 6,
+                    "status": "Sucesso",
+                    "tempo": 0.001383,
+                    "rmse_bruto": 0.776917,
+                    "nrmse": 0.008354
+                },
+                {
+                    "matriz_id": 7,
+                    "status": "Sucesso",
+                    "tempo": 0.001128,
+                    "rmse_bruto": 0.00069,
+                    "nrmse": 2.5e-05
+                },
+                {
+                    "matriz_id": 8,
+                    "status": "Sucesso",
+                    "tempo": 0.001056,
+                    "rmse_bruto": 6.067558,
+                    "nrmse": 0.073929
+                },
+                {
+                    "matriz_id": 9,
+                    "status": "Sucesso",
+                    "tempo": 0.001283,
+                    "rmse_bruto": 0.409122,
+                    "nrmse": 0.003584
+                },
+                {
+                    "matriz_id": 10,
+                    "status": "Sucesso",
+                    "tempo": 0.00116,
+                    "rmse_bruto": 1.822077,
+                    "nrmse": 0.016381
+                }
+            ],
+            "mensagem_erro": null
+        }
+    },
+    {
+        "timestamp": "2026-09-13_10-24-11",
+        "arquivo_codigo": "codigo_2026-09-13_10-24-11.py",
+        "resultado": {
+            "status_geral": "Sucesso",
+            "nrmse_medio_agregado": 0.019139,
+            "tempo_total_acumulado": 0.012788,
+            "detalhes_por_matriz": [
+                {
+                    "matriz_id": 1,
+                    "status": "Sucesso",
+                    "tempo": 0.001932,
+                    "rmse_bruto": 1.027918,
+                    "nrmse": 0.051281
+                },
+                {
+                    "matriz_id": 2,
+                    "status": "Sucesso",
+                    "tempo": 0.001375,
+                    "rmse_bruto": 9.5e-05,
+                    "nrmse": 3e-06
+                },
+                {
+                    "matriz_id": 3,
+                    "status": "Sucesso",
+                    "tempo": 0.00106,
+                    "rmse_bruto": 0.301481,
+                    "nrmse": 0.003998
+                },
+                {
+                    "matriz_id": 4,
+                    "status": "Sucesso",
+                    "tempo": 0.00095,
+                    "rmse_bruto": 0.002495,
+                    "nrmse": 5.3e-05
+                },
+                {
+                    "matriz_id": 5,
+                    "status": "Sucesso",
+                    "tempo": 0.000904,
+                    "rmse_bruto": 0.545781,
+                    "nrmse": 0.033785
+                },
+                {
+                    "matriz_id": 6,
+                    "status": "Sucesso",
+                    "tempo": 0.001271,
+                    "rmse_bruto": 0.776917,
+                    "nrmse": 0.008354
+                },
+                {
+                    "matriz_id": 7,
+                    "status": "Sucesso",
+                    "tempo": 0.001151,
+                    "rmse_bruto": 0.00069,
+                    "nrmse": 2.5e-05
+                },
+                {
+                    "matriz_id": 8,
+                    "status": "Sucesso",
+                    "tempo": 0.00129,
+                    "rmse_bruto": 6.067558,
+                    "nrmse": 0.073929
+                },
+                {
+                    "matriz_id": 9,
+                    "status": "Sucesso",
+                    "tempo": 0.001303,
+                    "rmse_bruto": 0.409122,
+                    "nrmse": 0.003584
+                },
+                {
+                    "matriz_id": 10,
+                    "status": "Sucesso",
+                    "tempo": 0.001552,
+                    "rmse_bruto": 1.822077,
+                    "nrmse": 0.016381
+                }
+            ],
+            "mensagem_erro": null
+        }
+    }
+]
