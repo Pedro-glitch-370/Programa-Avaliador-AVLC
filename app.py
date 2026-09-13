@@ -42,6 +42,48 @@ def deletar_tentativa_historico(equipe_id, arquivo_codigo, timestamp):
     #recarrega a interface para sumir o item deletado
     st.rerun()
 
+#função para carregar banco público
+@st.cache_resource
+def carregar_banco_publico():
+    pasta_banco = "banco_publico"
+    banco = []
+    if not os.path.exists(pasta_banco):
+        return []
+
+    for arquivo in sorted([
+        f for f in os.listdir(pasta_banco) if f.endswith("_gabarito.npy")
+    ]):
+        prefixo = arquivo.replace("_gabarito.npy", "")
+        banco.append({
+            "observada": np.load(
+                os.path.join(pasta_banco, f"{prefixo}_observada.npy")
+            ),
+            "mascara": np.load(os.path.join(pasta_banco, f"{prefixo}_mascara.npy")),
+            "gabarito": np.load(os.path.join(pasta_banco, f"{prefixo}_gabarito.npy")),
+        })
+    return banco
+
+#função para carregar banco oficial
+@st.cache_resource
+def carregar_banco_oficial():
+    pasta_banco = "banco_oficial"
+    banco = []
+    if not os.path.exists(pasta_banco):
+        return []
+
+    for arquivo in sorted([
+        f for f in os.listdir(pasta_banco) if f.endswith("_gabarito.npy")
+    ]):
+        prefixo = arquivo.replace("_gabarito.npy", "")
+        banco.append({
+            "observada": np.load(
+                os.path.join(pasta_banco, f"{prefixo}_observada.npy")
+            ),
+            "mascara": np.load(os.path.join(pasta_banco, f"{prefixo}_mascara.npy")),
+            "gabarito": np.load(os.path.join(pasta_banco, f"{prefixo}_gabarito.npy")),
+        })
+    return banco
+
 #=====================================================================================
 
 #configuração da página
@@ -76,6 +118,75 @@ if not st.session_state.autenticado:
             else:
                 st.error("PIN incorreto para este ID de equipe.")
 
+    #painel dos monitores para ranking automatizado
+    st.divider()
+    with st.expander("Painel dos Monitores"):
+        st.write("Área restrita para visualização do ranking final das equipes.")
+        
+        senha_monitor = st.text_input("Digite a senha de monitor:", type="password", key="senha_monitor_input")
+        
+        SENHA_MESTRE_MONITORES = "temp"
+        
+        if senha_monitor == SENHA_MESTRE_MONITORES:
+            st.success("Acesso liberado ao Ranking Oficial.")
+            
+            if st.button("Executar Avaliação Geral"):
+                banco_oficial = carregar_banco_oficial()
+                with st.spinner("Avaliando códigos finais de todas as equipes no Banco Oficial..."):
+                    diretorio_base = "historico_local_tentativas"
+                    dados_ranking = []
+                    
+                    if os.path.exists(diretorio_base):
+                        #procurar por todas as pastas de equipes
+                        for nome_pasta in os.listdir(diretorio_base):
+                            if nome_pasta.startswith("equipe_"):
+                                try:
+                                    equipe_id_str = nome_pasta.split("_")[1]
+                                    equipe_id = int(equipe_id_str)
+                                except ValueError:
+                                    continue
+                                    
+                                caminho_codigo_final = os.path.join(diretorio_base, nome_pasta, "codigo_final.py")
+                                
+                                #se a equipe enviou o código final
+                                if os.path.exists(caminho_codigo_final):
+                                    #executa a avaliação contra o banco oficial
+                                    relatorio_oficial = avaliar_todas_as_matrizes(caminho_codigo_final, banco_oficial)
+                                    
+                                    status = relatorio_oficial.get("status_geral", "Erro")
+                                    nrmse = relatorio_oficial.get("nrmse_medio_agregado")
+                                    tempo = relatorio_oficial.get("tempo_total_acumulado", 0.0)
+                                    
+                                    if "Sucesso" in status and nrmse is not None:
+                                        dados_ranking.append({
+                                            "Equipe": f"Equipe #{equipe_id}",
+                                            "Status": "Válido",
+                                            "NRMSE Agregado": nrmse,
+                                            "Tempo Total (s)": tempo
+                                        })
+                                    else:
+                                        dados_ranking.append({
+                                            "Equipe": f"Equipe #{equipe_id}",
+                                            "Status": f"Falha ({status})",
+                                            "NRMSE Agregado": float('inf'),
+                                            "Tempo Total (s)": tempo
+                                        })
+
+                    #ordenação
+                    if dados_ranking:
+                        df_ranking = pd.DataFrame(dados_ranking)
+                        df_ranking = df_ranking.sort_values(by="NRMSE Agregado", ascending=True).reset_index(drop=True)
+                        
+                        df_ranking.index = df_ranking.index + 1
+                        df_ranking.index.name = "Posição"
+                        
+                        st.subheader("Ranking Oficial do Torneio")
+                        st.dataframe(df_ranking, use_container_width=True)
+                    else:
+                        st.info("Nenhum código final encontrado nas pastas das equipes para compor o ranking.")
+        elif senha_monitor:
+            st.error("Senha incorreta.")
+
 #tela se estiver autenticado
 else:
     equipe_id = st.session_state.equipe_id
@@ -94,48 +205,6 @@ else:
         "o lote público de matrizes, retornar os resultados e consultar o histórico "
         "das suas tentativas anteriores."
     )
-
-    #carregar banco público
-    @st.cache_resource
-    def carregar_banco_publico():
-        pasta_banco = "banco_publico"
-        banco = []
-        if not os.path.exists(pasta_banco):
-            return []
-
-        for arquivo in sorted([
-            f for f in os.listdir(pasta_banco) if f.endswith("_gabarito.npy")
-        ]):
-            prefixo = arquivo.replace("_gabarito.npy", "")
-            banco.append({
-                "observada": np.load(
-                    os.path.join(pasta_banco, f"{prefixo}_observada.npy")
-                ),
-                "mascara": np.load(os.path.join(pasta_banco, f"{prefixo}_mascara.npy")),
-                "gabarito": np.load(os.path.join(pasta_banco, f"{prefixo}_gabarito.npy")),
-            })
-        return banco
-
-    #carregar banco oficial
-    @st.cache_resource
-    def carregar_banco_oficial():
-        pasta_banco = "banco_oficial"
-        banco = []
-        if not os.path.exists(pasta_banco):
-            return []
-
-        for arquivo in sorted([
-            f for f in os.listdir(pasta_banco) if f.endswith("_gabarito.npy")
-        ]):
-            prefixo = arquivo.replace("_gabarito.npy", "")
-            banco.append({
-                "observada": np.load(
-                    os.path.join(pasta_banco, f"{prefixo}_observada.npy")
-                ),
-                "mascara": np.load(os.path.join(pasta_banco, f"{prefixo}_mascara.npy")),
-                "gabarito": np.load(os.path.join(pasta_banco, f"{prefixo}_gabarito.npy")),
-            })
-        return banco
 
     #mensagens de sucesso/erro após carregar banco público
     banco_publico = carregar_banco_publico()
@@ -444,72 +513,3 @@ else:
 
                 if os.path.exists(caminho_temp_oficial):
                     os.remove(caminho_temp_oficial)
-
-    #painel dos monitores para ranking automatizado
-    st.divider()
-    with st.expander("Painel dos Monitores"):
-        st.write("Área restrita para visualização do ranking final das equipes.")
-        
-        senha_monitor = st.text_input("Digite a senha de monitor:", type="password", key="senha_monitor_input")
-        
-        SENHA_MESTRE_MONITORES = "temp"
-        
-        if senha_monitor == SENHA_MESTRE_MONITORES:
-            st.success("Acesso liberado ao Ranking Oficial.")
-            
-            if st.button("Executar Avaliação Geral"):
-                banco_oficial = carregar_banco_oficial()
-                with st.spinner("Avaliando códigos finais de todas as equipes no Banco Oficial..."):
-                    diretorio_base = "historico_local_tentativas"
-                    dados_ranking = []
-                    
-                    if os.path.exists(diretorio_base):
-                        #procurar por todas as pastas de equipes
-                        for nome_pasta in os.listdir(diretorio_base):
-                            if nome_pasta.startswith("equipe_"):
-                                try:
-                                    equipe_id_str = nome_pasta.split("_")[1]
-                                    equipe_id = int(equipe_id_str)
-                                except ValueError:
-                                    continue
-                                    
-                                caminho_codigo_final = os.path.join(diretorio_base, nome_pasta, "codigo_final.py")
-                                
-                                #se a equipe enviou o código final
-                                if os.path.exists(caminho_codigo_final):
-                                    #executa a avaliação contra o banco oficial
-                                    relatorio_oficial = avaliar_todas_as_matrizes(caminho_codigo_final, banco_oficial)
-                                    
-                                    status = relatorio_oficial.get("status_geral", "Erro")
-                                    nrmse = relatorio_oficial.get("nrmse_medio_agregado")
-                                    tempo = relatorio_oficial.get("tempo_total_acumulado", 0.0)
-                                    
-                                    if "Sucesso" in status and nrmse is not None:
-                                        dados_ranking.append({
-                                            "Equipe": f"Equipe #{equipe_id}",
-                                            "Status": "Válido",
-                                            "NRMSE Agregado": nrmse,
-                                            "Tempo Total (s)": tempo
-                                        })
-                                    else:
-                                        dados_ranking.append({
-                                            "Equipe": f"Equipe #{equipe_id}",
-                                            "Status": f"Falha ({status})",
-                                            "NRMSE Agregado": float('inf'),
-                                            "Tempo Total (s)": tempo
-                                        })
-
-                    #ordenação
-                    if dados_ranking:
-                        df_ranking = pd.DataFrame(dados_ranking)
-                        df_ranking = df_ranking.sort_values(by="NRMSE Agregado", ascending=True).reset_index(drop=True)
-                        
-                        df_ranking.index = df_ranking.index + 1
-                        df_ranking.index.name = "Posição"
-                        
-                        st.subheader("Ranking Oficial do Torneio")
-                        st.dataframe(df_ranking, use_container_width=True)
-                    else:
-                        st.info("Nenhum código final encontrado nas pastas das equipes para compor o ranking.")
-        elif senha_monitor:
-            st.error("Senha incorreta.")
