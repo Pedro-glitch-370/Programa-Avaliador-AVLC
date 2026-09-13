@@ -9,6 +9,38 @@ from core_avaliador import (
     salvar_historico_local,
 )
 
+#função para apagar tentativa do histórico local
+def deletar_tentativa_historico(arquivo_codigo, timestamp):
+    diretorio_base = "historico_local_tentativas"
+    caminho_json = os.path.join(diretorio_base, "historico.json")
+    caminho_py = os.path.join(diretorio_base, arquivo_codigo)
+
+    #remover o arquivo .py se ele existir
+    if os.path.exists(caminho_py):
+        try:
+            os.remove(caminho_py)
+        except Exception:
+            pass
+
+    #remover o registro do arquivo historico.json
+    if os.path.exists(caminho_json):
+        try:
+            with open(caminho_json, "r", encoding="utf-8") as f:
+                historico_geral = json.load(f)
+            
+            #tirar o item com o timestamp correspondente
+            historico_geral = [t for t in historico_geral if t["timestamp"] != timestamp]
+
+            with open(caminho_json, "w", encoding="utf-8") as f:
+                json.dump(historico_geral, f, indent=4, ensure_ascii=False)
+        except Exception:
+            pass
+
+    #recarrega a interface para sumir o item deletado
+    st.rerun()
+
+#=====================================================================================
+
 #configuração da página
 st.set_page_config(
     page_title="Programa Avaliador",
@@ -47,27 +79,24 @@ def carregar_banco_publico():
 banco_publico = carregar_banco_publico()
 
 #mensagens de sucesso/erro após carregar banco público
+st.subheader("Banco de Matrizes Públicas")
 if not banco_publico:
-    st.error(
+    st.write(
         "Pasta 'banco_publico' não encontrada ou vazia. Certifique-se de"
         " gerar as matrizes públicas primeiro."
     )
 else:
-    st.success(
-        f"Lote público carregado com sucesso ({len(banco_publico)} matrizes"
-        " disponíveis)."
+    st.write(
+        "**Atenção:** Este **não** é o banco de matrizes "
+        "oficial do torneio, mas uma seleção de matrizes para treino e refino"
+        " dos algoritmos."
     )
 
     #visualização das matrizes públicas
-    with st.expander("Explorar Matrizes do Banco Público"):
+    with st.expander("Explorar Matrizes Públicas"):
         st.write(
             "Selecione uma matriz para visualizar os dados observados e a máscara"
             " booleana correspondente."
-        )
-        st.write(
-            "**Atenção:** Este **não** é o banco de matrizes "
-            "oficial do torneio, mas uma seleção pública de matrizes para treino e refino"
-            " dos algoritmos."
         )
 
         nomes_matrizes = [
@@ -83,9 +112,21 @@ else:
         matriz_selecionada = banco_publico[escolha_idx]
         obs = matriz_selecionada["observada"]
         mascara = matriz_selecionada["mascara"]
-
-        st.markdown("**Valores Observados (Preto e Branco com Grades):**")
         df_obs = pd.DataFrame(obs)
+
+        #fazer download da matriz
+        st.markdown("**Download da Matriz:**")
+        csv_data = df_obs.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label=f"📥 Baixar Matriz #{escolha_idx + 1} (CSV)",
+            data=csv_data,
+            file_name=f"matriz_{escolha_idx + 1}_observada.csv",
+            mime="text/csv",
+            key=f"download_matriz_{escolha_idx}"
+        )
+
+        #mostrar matriz observada
+        st.markdown("**Observada (Branco = Dado | Preto = Oculto):**")
         def destacar_buracos(val):
             if pd.isna(val):
                 return 'background-color: black; color: black;'
@@ -95,6 +136,7 @@ else:
         )
         st.dataframe(df_estilizado, use_container_width=True)
 
+        #mostrar máscara
         st.markdown("**Máscara (Branco = Dado | Preto = Oculto):**")
         fig_mask = px.imshow(
             mascara.astype(int),
@@ -110,13 +152,17 @@ else:
         st.plotly_chart(fig_mask, use_container_width=True)
 
     #form para enviar e testar o código
-    with st.form("form_teste"):
-        st.subheader("Enviar Código para Teste em Lote")
-        arquivo_enviado = st.file_uploader(
-            "Envie seu arquivo Python contendo a função `principal(observada, mascara)`",
-            type=["py"],
-        )
-        botao_testar = st.form_submit_button("Executar Teste")
+    st.divider()
+    st.subheader("Envio de Código para Teste em Lote")
+    st.write("**Atenção:** O arquivo deve ser em Python e conter "
+             "a função `principal(observada, mascara)`.")
+    with st.expander("Enviar Código"):
+        with st.form("form_teste"):
+            arquivo_enviado = st.file_uploader(
+                "Clique em Upload e selecione o arquivo desejado",
+                type=["py"],
+            )
+            botao_testar = st.form_submit_button("Executar Teste")
 
     if botao_testar and arquivo_enviado is not None:
         caminho_temp = "temp_teste_aluno.py"
@@ -180,15 +226,12 @@ if os.path.exists(caminho_historico_local):
         for idx, tentativa in enumerate(reversed(historico_data), 1):
             res = tentativa["resultado"]
             status_tentativa = res["status_geral"]
-            nrmse_str = (
-                f" - NRMSE: {res['nrmse_medio_agregado']:.6f}"
-                if res["nrmse_medio_agregado"] is not None
-                else ""
-            )
+            nrmse_val = res.get("nrmse_medio_agregado")
+            nrmse_str = f" - NRMSE: {nrmse_val:.6f}" if nrmse_val is not None else ""
 
             titulo_expander = (
                 f"Tentativa #{len(historico_data) - idx + 1} | Data:"
-                f" {tentativa['timestamp']} | Status: {status_tentativa}{nrmse_str}"
+                f" {tentativa['timestamp']} | {status_tentativa}{nrmse_str}"
             )
 
             with st.expander(titulo_expander):
@@ -203,18 +246,19 @@ if os.path.exists(caminho_historico_local):
                         st.code(codigo_fonte, language="python")
 
                 with st.expander("Ver Status Geral"):
-                    col_m1, col_m2 = st.columns(2)
-                    with col_m1:
-                        nrmse_val = res.get("nrmse_medio_agregado")
-                        if nrmse_val is not None:
-                                st.metric("NRMSE Médio Agregado", f"{nrmse_val:.6f}")
-                        else:
-                                st.metric("Status Geral", res.get("status_geral", "Erro"))
-                    with col_m2:
-                        st.metric("Tempo Total Acumulado", f"{res.get('tempo_total_acumulado', 0):.4f} s")
-
-                    if res.get("mensagem_erro"):
+                    if "mensagem_erro" in res and res["mensagem_erro"]:
+                        st.error(f"**Status Geral:** {status_tentativa}")
                         st.error(f"**Mensagem de Erro:** {res['mensagem_erro']}")
+                    else:
+                        col_m1, col_m2 = st.columns(2)
+                        with col_m1:
+                            nrmse_val = res.get("nrmse_medio_agregado")
+                            if nrmse_val is not None:
+                                    st.metric("NRMSE Médio Agregado", f"{nrmse_val:.6f}")
+                            else:
+                                    st.metric("Status Geral", res.get("status_geral", "Erro"))
+                        with col_m2:
+                            st.metric("Tempo Total Acumulado", f"{res.get('tempo_total_acumulado', 0):.4f} s")
 
                 detalhes = res.get("detalhes_por_matriz")
                 if detalhes:
@@ -237,6 +281,12 @@ if os.path.exists(caminho_historico_local):
                                         st.write(f"**RMSE Bruto:** {item['rmse_bruto']:.6f}")
                                     if "nrmse" in item:
                                         st.write(f"**NRMSE:** {item['nrmse']:.6f}")
+
+                if st.button("🗑️ Deletar esta tentativa", key=f"btn_del_{tentativa['timestamp']}"):
+                    deletar_tentativa_historico(
+                        tentativa['arquivo_codigo'], 
+                        tentativa['timestamp']
+                    )
 
                 
     except Exception:
