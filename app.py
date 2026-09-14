@@ -7,40 +7,14 @@ import streamlit as st
 import plotly.express as px
 import pandas as pd
 from gerar_pins import validar_pin_equipe
+from funcoes_suporte import (
+    calcular_hash_sha256,
+    verificar_congelamento,
+    deletar_tentativa_historico)
 from core_avaliador import (
     avaliar_todas_as_matrizes,
     salvar_historico_local,
 )
-
-#função para apagar tentativa do histórico local
-def deletar_tentativa_historico(equipe_id, arquivo_codigo, timestamp):
-    diretorio_base = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}")
-    caminho_json = os.path.join(diretorio_base, "historico.json")
-    caminho_py = os.path.join(diretorio_base, arquivo_codigo)
-
-    #remover o arquivo .py se ele existir
-    if os.path.exists(caminho_py):
-        try:
-            os.remove(caminho_py)
-        except Exception:
-            pass
-
-    #remover o registro do arquivo historico.json
-    if os.path.exists(caminho_json):
-        try:
-            with open(caminho_json, "r", encoding="utf-8") as f:
-                historico_geral = json.load(f)
-            
-            #tirar o item com o timestamp correspondente
-            historico_geral = [t for t in historico_geral if t["timestamp"] != timestamp]
-
-            with open(caminho_json, "w", encoding="utf-8") as f:
-                json.dump(historico_geral, f, indent=4, ensure_ascii=False)
-        except Exception:
-            pass
-
-    #recarrega a interface para sumir o item deletado
-    st.rerun()
 
 #função para carregar banco público
 @st.cache_resource
@@ -120,6 +94,7 @@ if not st.session_state.autenticado:
 
     #painel dos monitores para ranking automatizado
     st.divider()
+    caminho_config = "config_torneio.json"
     with st.expander("Painel dos Monitores"):
         st.write("Área restrita para visualização do ranking final das equipes.")
         
@@ -129,7 +104,17 @@ if not st.session_state.autenticado:
         
         if senha_monitor == SENHA_MESTRE_MONITORES:
             st.success("Acesso liberado ao Ranking Oficial.")
-            
+
+            #carregar estado atual do torneio
+            config_atual = {"congelamento_manual": False}
+            if os.path.exists(caminho_config):
+                try:
+                    with open(caminho_config, "r", encoding="utf-8") as f:
+                        config_atual = json.load(f)
+                except:
+                    pass
+
+            #botão para fazer o ranking
             if st.button("Executar Avaliação Geral"):
                 banco_oficial = carregar_banco_oficial()
                 with st.spinner("Avaliando códigos finais de todas as equipes no Banco Oficial..."):
@@ -184,6 +169,19 @@ if not st.session_state.autenticado:
                         st.dataframe(df_ranking, use_container_width=True)
                     else:
                         st.info("Nenhum código final encontrado nas pastas das equipes para compor o ranking.")
+
+            novo_estado_congelamento = st.toggle(
+                "Congelar Torneio Manualmente (Bloqueia envios das equipes)", 
+                value=config_atual.get("congelamento_manual", False)
+            )
+
+            #se o monitor alterar o botão, salva no JSON
+            if novo_estado_congelamento != config_atual.get("congelamento_manual", False):
+                config_atual["congelamento_manual"] = novo_estado_congelamento
+                with open(caminho_config, "w", encoding="utf-8") as f:
+                    json.dump(config_atual, f)
+                st.rerun()
+
         elif senha_monitor:
             st.error("Senha incorreta.")
 
@@ -461,55 +459,67 @@ else:
     else:
         st.error("Nenhum Código Final enviado por esta equipe ainda.")
 
-    #form para envio ou sobrescrita do código final
-    with st.expander("Enviar Código Final"):
-        with st.form("form_submissao_oficial"):
-            arquivo_oficial = st.file_uploader(
-                "Selecione o arquivo Python (.py) definitivo para concorrer",
-                type=["py"],
-            )
-            botao_enviar_oficial = st.form_submit_button("Salvar Código")
+    #checar status de congelamento
+    esta_congelado, motivo_congelamento = verificar_congelamento()
 
-    if botao_enviar_oficial:
-        if arquivo_oficial is None:
-            st.error("Selecione um arquivo .py antes de enviar.")
-        else:
-            caminho_temp_oficial = "temp_oficial_aluno.py"
-            with open(caminho_temp_oficial, "wb") as f:
-                f.write(arquivo_oficial.getbuffer())
+    if esta_congelado:
+        st.warning(f"**Atenção:** {motivo_congelamento} Não é mais permitido enviar ou alterar o código final.")
+    else:
+        #form para envio ou sobrescrita do código final
+        with st.expander("Enviar Código Final"):
+            with st.form("form_submissao_oficial"):
+                arquivo_oficial = st.file_uploader(
+                    "Selecione o arquivo Python (.py) definitivo para concorrer",
+                    type=["py"],
+                )
+                botao_enviar_oficial = st.form_submit_button("Salvar Código")
 
-            with st.spinner("Validando e avaliando o código final nas matrizes públicas..."):
-                #executar a avaliação para checar se o código é válido e extrair o NRMSE
-                relatorio_oficial = avaliar_todas_as_matrizes(caminho_temp_oficial, banco_publico)
-
-            if "Sucesso" in relatorio_oficial["status_geral"]:
-                #copiar o código para o destino final
-                shutil.copy(caminho_temp_oficial, caminho_arquivo_final)
-                    
-                timestamp_oficial = time.strftime("%Y-%m-%d_%H-%M-%S")
-                nrmse_oficial = relatorio_oficial["nrmse_medio_agregado"]
-
-                #salvar os metadados do arquivo final
-                meta_dados = {
-                    "timestamp": timestamp_oficial,
-                    "equipe_id": equipe_id,
-                    "arquivo": "codigo_final.py",
-                    "nrmse": nrmse_oficial,
-                    "tempo_total": relatorio_oficial["tempo_total_acumulado"]
-                }
-                with open(caminho_meta_final, "w", encoding="utf-8") as f:
-                    json.dump(meta_dados, f, indent=4, ensure_ascii=False)
-
-                st.success("A submissão oficial foi registrada com sucesso.")
-                    
-                #pequeno atraso visual pro aluno ver o sucesso
-                time.sleep(3)
-                st.rerun()
+        if botao_enviar_oficial:
+            #dupla checagem caso o estado mude enquanto o form estava aberto
+            bloqueado_agora, motivo_agora = verificar_congelamento()
+            if bloqueado_agora:
+                st.error(f"Erro: {motivo_agora}")
+            elif arquivo_oficial is None:
+                st.error("Selecione um arquivo .py antes de enviar.")
             else:
-                st.error(f"**Código final rejeitado.** Confirme antes que o código está sem erros estruturais e válido para todas as matrizes públicas.")
-                st.error(f"Status: {relatorio_oficial['status_geral']}")
-                if relatorio_oficial.get("mensagem_erro"):
-                    st.warning(f"Detalhes: {relatorio_oficial['mensagem_erro']}")
+                caminho_temp_oficial = "temp_oficial_aluno.py"
+                with open(caminho_temp_oficial, "wb") as f:
+                    f.write(arquivo_oficial.getbuffer())
 
-                if os.path.exists(caminho_temp_oficial):
-                    os.remove(caminho_temp_oficial)
+                with st.spinner("Validando e avaliando o código final nas matrizes públicas..."):
+                    #executar a avaliação para checar se o código é válido e extrair o NRMSE
+                    relatorio_oficial = avaliar_todas_as_matrizes(caminho_temp_oficial, banco_publico)
+
+                if "Sucesso" in relatorio_oficial["status_geral"]:
+                    #copiar o código para o destino final
+                    shutil.copy(caminho_temp_oficial, caminho_arquivo_final)
+                        
+                    timestamp_oficial = time.strftime("%Y-%m-%d_%H-%M-%S")
+                    nrmse_oficial = relatorio_oficial["nrmse_medio_agregado"]
+
+                    #calcular o hash SHA-256 do arquivo salvo e salvar os metadados
+                    hash_arquivo_final = calcular_hash_sha256(caminho_arquivo_final)
+                    meta_dados = {
+                        "timestamp": timestamp_oficial,
+                        "equipe_id": equipe_id,
+                        "arquivo": "codigo_final.py",
+                        "nrmse": nrmse_oficial,
+                        "tempo_total": relatorio_oficial["tempo_total_acumulado"],
+                        "hash_sha256": hash_arquivo_final
+                    }
+                    with open(caminho_meta_final, "w", encoding="utf-8") as f:
+                        json.dump(meta_dados, f, indent=4, ensure_ascii=False)
+
+                    st.success("A submissão oficial foi registrada com sucesso.")
+                        
+                    #pequeno atraso visual pro aluno ver o sucesso
+                    time.sleep(3)
+                    st.rerun()
+                else:
+                    st.error(f"**Código final rejeitado.** Confirme antes que o código está sem erros estruturais e válido para todas as matrizes públicas.")
+                    st.error(f"Status: {relatorio_oficial['status_geral']}")
+                    if relatorio_oficial.get("mensagem_erro"):
+                        st.warning(f"Detalhes: {relatorio_oficial['mensagem_erro']}")
+
+                    if os.path.exists(caminho_temp_oficial):
+                        os.remove(caminho_temp_oficial)
