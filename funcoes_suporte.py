@@ -1,8 +1,77 @@
 import json
 import os
 import hashlib
+import hmac
+import ast
 import streamlit as st
 from datetime import datetime
+
+chave_torneio = st.secrets["CHAVE_MESTRE_TORNEIO"]
+
+class AnalisadorSegurancaCodigo(ast.NodeVisitor):
+    def __init__(self):
+        self.modulos_proibidos = {
+            'os', 'subprocess', 'shutil', 'pathlib', 'sys',  #sistema e arquivos
+            'socket', 'requests', 'urllib', 'http', 'ftplib', #rede e internet
+            'smtplib', 'xmlrpc', 'asyncio'                   #comunicação avançada
+        }
+        self.builtins_proibidos = {'eval', 'exec', 'compile', 'getattr', 'setattr', '__import__'}
+        self.violacoes = []
+
+    def visit_Import(self, node):
+        for alias in node.names:
+            nome_base = alias.name.split('.')[0]
+            if nome_base in self.modulos_proibidos:
+                self.violacoes.append(f"Uso proibido do módulo '{alias.name}'.")
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node):
+        if node.module:
+            nome_base = node.module.split('.')[0]
+            if nome_base in self.modulos_proibidos:
+                self.violacoes.append(f"Uso proibido do módulo '{node.module}'")
+        self.generic_visit(node)
+
+    def visit_Call(self, node):
+        if isinstance(node.func, ast.Name) and node.func.id == 'open':
+            self.violacoes.append("Uso proibido da função nativa 'open()'.")
+        elif node.func.id in self.builtins_proibidos:
+            self.violacoes.append(f"Uso proibido da função '{node.func.id}()'")
+        self.generic_visit(node)
+
+#função para prrocurar ameaças no arquivo.py
+def validar_seguranca_codigo(caminho_arquivo):
+    with open(caminho_arquivo, "r", encoding="utf-8") as f:
+        codigo_fonte = f.read()
+    
+    try:
+        arvore = ast.parse(codigo_fonte)
+    except SyntaxError as e:
+        return False, f"Erro de sintaxe: {e}"
+
+    analisador = AnalisadorSegurancaCodigo()
+    analisador.visit(arvore)
+
+    if analisador.violacoes:
+        return False, " | ".join(analisador.violacoes)
+    
+    return True, ""
+
+#função para gerar pin secreto de cada equipe
+def gerar_pin_equipe(equipe_id: int) -> str:
+    mensagem = f"equipe_{equipe_id}".encode("utf-8")
+    assinatura = hmac.new(
+        chave_torneio.encode("utf-8"), 
+        mensagem, 
+        hashlib.sha256
+    ).hexdigest()
+
+    return assinatura[:6].upper()
+
+#função para validar pin enviado por um aluno
+def validar_pin_equipe(equipe_id: int, pin_informado: str) -> bool:
+    pin_esperado = gerar_pin_equipe(equipe_id)
+    return hmac.compare_digest(pin_esperado, pin_informado.strip().upper())
 
 #função para calcular o hash SHA-256 de um arquivo
 def calcular_hash_sha256(caminho_arquivo):

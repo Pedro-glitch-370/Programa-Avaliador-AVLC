@@ -19,7 +19,7 @@ def principal(observada, mascara):
 
   # Parâmetros da otimização iterativa
   max_iter = 30
-  posto_alvo = 1  # Posto estimado para o truncamento da SVD
+  posto_alvo = 3  # Posto estimado para o truncamento da SVD
 
   for _ in range(max_iter):
     # Aplica a Decomposição em Valores Singulares (SVD)

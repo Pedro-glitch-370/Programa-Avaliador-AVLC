@@ -6,12 +6,23 @@ import sys
 import time
 import numpy as np
 import multiprocessing
+from funcoes_suporte import validar_seguranca_codigo
 
 #função pra executar o código da equipe contra todas as matrizes
 def _tarefa_lote_processo(caminho_arquivo_py, banco_10_matrizes, fila_comunicacao):
     try:
         #localizar o arquivo .py enviado pelo aluno pelo caminho absoluto
         caminho_absoluto = os.path.abspath(caminho_arquivo_py)
+
+        #validar a segurança
+        valido, mensagem_seguranca = validar_seguranca_codigo(caminho_absoluto)
+        if not valido:
+            fila_comunicacao.put({
+                "status_geral": "Reprovado por Violação de Segurança",
+                "mensagem_erro": f"O código contém elementos proibidos: {mensagem_seguranca}",
+            })
+            return
+
         nome_modulo = "codigo_aluno_temp"
 
         spec = importlib.util.spec_from_file_location(nome_modulo, caminho_absoluto)

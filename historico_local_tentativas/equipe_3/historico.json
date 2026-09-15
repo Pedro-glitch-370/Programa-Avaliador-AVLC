@@ -1,0 +1,11 @@
+[
+    {
+        "equipe_id": 3,
+        "timestamp": "2026-09-15_09-18-25",
+        "arquivo_codigo": "codigo_2026-09-15_09-18-25.py",
+        "resultado": {
+            "status_geral": "Reprovado na Matriz #1: Contém Valores Inválidos (Inf)",
+            "mensagem_erro": "A matriz retornada possui valores infinitos (Inf)."
+        }
+    }
+]

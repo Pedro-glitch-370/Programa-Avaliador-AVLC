@@ -6,8 +6,8 @@ import numpy as np
 import streamlit as st
 import plotly.express as px
 import pandas as pd
-from gerar_pins import validar_pin_equipe
 from funcoes_suporte import (
+    validar_pin_equipe,
     calcular_hash_sha256,
     verificar_congelamento,
     deletar_tentativa_historico)
@@ -15,6 +15,10 @@ from core_avaliador import (
     avaliar_todas_as_matrizes,
     salvar_historico_local,
 )
+
+#constantes secretas
+tamanho_max_bytes = st.secrets["TAMANHO_MAX_BYTES"] * 1024 * 1024
+senha_monitor_correta = st.secrets["SENHA_MESTRE_MONITORES"]
 
 #função para carregar banco público
 @st.cache_resource
@@ -73,36 +77,38 @@ if "autenticado" not in st.session_state:
 
 #tela se não estiver autenticado
 if not st.session_state.autenticado:
-    st.subheader("Identificação da Equipe")
-    st.info("Insira o ID da sua equipe e o PIN secreto fornecido pelos monitores para acessar o avaliador.")
-    
-    with st.form("form_login"):
-        input_id = st.number_input("Número da Equipe (ID):", min_value=1, max_value=50, step=1, value=1)
-        input_pin = st.text_input("PIN Secreto:", type="password")
-        botao_login = st.form_submit_button("Entrar no Painel")
+    modo_acesso = st.sidebar.radio("Selecione o Painel", ["Área do Aluno", "Painel dos Monitores"])
+
+    if modo_acesso == "Área do Aluno":
+        st.subheader("Identificação da Equipe")
+        st.info("Insira o ID da sua equipe e o PIN secreto fornecido pelos monitores para acessar o avaliador.")
         
-        if botao_login:
-            if not input_pin or input_pin.strip() == "":
-                st.error("Insira o PIN fornecido para a equipe.")
-            elif validar_pin_equipe(int(input_id), input_pin):
-                st.session_state.autenticado = True
-                st.session_state.equipe_id = int(input_id)
-                st.success("Autenticado com sucesso.")
-                st.rerun()
-            else:
-                st.error("PIN incorreto para este ID de equipe.")
+        with st.form("form_login"):
+            input_id = st.number_input("Número da Equipe (ID):", min_value=1, max_value=50, step=1, value=1)
+            input_pin = st.text_input("PIN Secreto:", type="password")
+            botao_login = st.form_submit_button("Entrar no Painel da Equipe")
+            
+            if botao_login:
+                if not input_pin or input_pin.strip() == "":
+                    st.error("Insira o PIN fornecido para a equipe.")
+                elif validar_pin_equipe(int(input_id), input_pin):
+                    st.session_state.autenticado = True
+                    st.session_state.equipe_id = int(input_id)
+                    st.success("Autenticado com sucesso.")
+                    st.rerun()
+                else:
+                    st.error("PIN incorreto para este ID de equipe.")
 
     #painel dos monitores para ranking automatizado
-    st.divider()
-    caminho_config = "config_torneio.json"
-    with st.expander("Painel dos Monitores"):
-        st.write("Área restrita para visualização do ranking final das equipes.")
-        
+    if modo_acesso == "Painel dos Monitores":
+        caminho_config = "config_torneio.json"
+
+        st.subheader("Painel dos Monitores")
+        st.info("Área restrita para visualização do ranking final das equipes. Insira a senha da monitoria para acessar as funções de administrador.")
+            
         senha_monitor = st.text_input("Digite a senha de monitor:", type="password", key="senha_monitor_input")
         
-        SENHA_MESTRE_MONITORES = "temp"
-        
-        if senha_monitor == SENHA_MESTRE_MONITORES:
+        if senha_monitor == senha_monitor_correta:
             st.success("Acesso liberado ao Ranking Oficial.")
 
             #carregar estado atual do torneio
@@ -481,8 +487,10 @@ else:
                 st.error(f"Erro: {motivo_agora}")
             elif arquivo_oficial is None:
                 st.error("Selecione um arquivo .py antes de enviar.")
+            elif arquivo_oficial.size > tamanho_max_bytes:
+                st.error(f"O arquivo é muito grande ({arquivo_oficial.size / (1024*1024):.2f} MB). O limite máximo permitido é de 5MB.")
             else:
-                caminho_temp_oficial = "temp_oficial_aluno.py"
+                caminho_temp_oficial = os.path.join(caminho_pasta_equipe, "temp_oficial_aluno.py")
                 with open(caminho_temp_oficial, "wb") as f:
                     f.write(arquivo_oficial.getbuffer())
 
@@ -511,15 +519,16 @@ else:
                         json.dump(meta_dados, f, indent=4, ensure_ascii=False)
 
                     st.success("A submissão oficial foi registrada com sucesso.")
-                        
-                    #pequeno atraso visual pro aluno ver o sucesso
-                    time.sleep(3)
-                    st.rerun()
                 else:
                     st.error(f"**Código final rejeitado.** Confirme antes que o código está sem erros estruturais e válido para todas as matrizes públicas.")
                     st.error(f"Status: {relatorio_oficial['status_geral']}")
                     if relatorio_oficial.get("mensagem_erro"):
                         st.warning(f"Detalhes: {relatorio_oficial['mensagem_erro']}")
 
-                    if os.path.exists(caminho_temp_oficial):
-                        os.remove(caminho_temp_oficial)
+                if os.path.exists(caminho_temp_oficial):
+                    os.remove(caminho_temp_oficial)
+
+                if "Sucesso" in relatorio_oficial["status_geral"]:
+                    #pequeno atraso visual pro aluno ver o sucesso
+                    time.sleep(3)
+                    st.rerun()
