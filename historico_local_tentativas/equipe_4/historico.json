@@ -1,0 +1,85 @@
+[
+    {
+        "equipe_id": 4,
+        "timestamp": "2026-09-16_11-31-28",
+        "arquivo_codigo": "codigo_2026-09-16_11-31-28.py",
+        "resultado": {
+            "status_geral": "Sucesso",
+            "nrmse_medio_agregado": 0.091,
+            "tempo_total_acumulado": 0.014345,
+            "detalhes_por_matriz": [
+                {
+                    "matriz_id": 1,
+                    "status": "Sucesso",
+                    "tempo": 0.001348,
+                    "rmse_bruto": 0.532235,
+                    "nrmse": 0.059507
+                },
+                {
+                    "matriz_id": 2,
+                    "status": "Sucesso",
+                    "tempo": 0.001051,
+                    "rmse_bruto": 17.538896,
+                    "nrmse": 0.189194
+                },
+                {
+                    "matriz_id": 3,
+                    "status": "Sucesso",
+                    "tempo": 0.001525,
+                    "rmse_bruto": 3.306865,
+                    "nrmse": 0.068698
+                },
+                {
+                    "matriz_id": 4,
+                    "status": "Sucesso",
+                    "tempo": 0.000701,
+                    "rmse_bruto": 3.122237,
+                    "nrmse": 0.254738
+                },
+                {
+                    "matriz_id": 5,
+                    "status": "Sucesso",
+                    "tempo": 0.000825,
+                    "rmse_bruto": 0.127314,
+                    "nrmse": 0.013327
+                },
+                {
+                    "matriz_id": 6,
+                    "status": "Sucesso",
+                    "tempo": 0.00137,
+                    "rmse_bruto": 0.448826,
+                    "nrmse": 0.047401
+                },
+                {
+                    "matriz_id": 7,
+                    "status": "Sucesso",
+                    "tempo": 0.001664,
+                    "rmse_bruto": 0.082167,
+                    "nrmse": 0.008457
+                },
+                {
+                    "matriz_id": 8,
+                    "status": "Sucesso",
+                    "tempo": 0.001648,
+                    "rmse_bruto": 8.471474,
+                    "nrmse": 0.184131
+                },
+                {
+                    "matriz_id": 9,
+                    "status": "Sucesso",
+                    "tempo": 0.001572,
+                    "rmse_bruto": 1.086592,
+                    "nrmse": 0.065162
+                },
+                {
+                    "matriz_id": 10,
+                    "status": "Sucesso",
+                    "tempo": 0.002641,
+                    "rmse_bruto": 0.270564,
+                    "nrmse": 0.01938
+                }
+            ],
+            "mensagem_erro": null
+        }
+    }
+]

@@ -9,7 +9,7 @@ import multiprocessing
 from funcoes_suporte import validar_seguranca_codigo
 
 #função pra executar o código da equipe contra todas as matrizes
-def _tarefa_lote_processo(caminho_arquivo_py, banco_10_matrizes, fila_comunicacao):
+def _tarefa_lote_processo(equipe_id, caminho_arquivo_py, banco_10_matrizes, fila_comunicacao):
     try:
         #localizar o arquivo .py enviado pelo aluno pelo caminho absoluto
         caminho_absoluto = os.path.abspath(caminho_arquivo_py)
@@ -52,6 +52,10 @@ def _tarefa_lote_processo(caminho_arquivo_py, banco_10_matrizes, fila_comunicaca
         detalhes_por_matriz = []
         nrmses_validos = []
         tempo_total = 0.0
+
+        #diretório para salvar as saídas da equipe
+        pasta_saidas = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}", f"saidas_{equipe_id}")
+        os.makedirs(pasta_saidas, exist_ok=True)
 
         #iterar pelas 10 matrizes no mesmo processo
         for idx, dados_matriz in enumerate(banco_10_matrizes):
@@ -102,6 +106,9 @@ def _tarefa_lote_processo(caminho_arquivo_py, banco_10_matrizes, fila_comunicaca
                 })
                 return
 
+            #salvar a matriz para visualização
+            np.save(os.path.join(pasta_saidas, f"saida_{idx + 1}.npy"), matriz_saida)
+
             #calcular o NRMSE nas posições ocultas
             posicoes_ocultas = ~mascara
             if not posicoes_ocultas.any():
@@ -142,7 +149,7 @@ def _tarefa_lote_processo(caminho_arquivo_py, banco_10_matrizes, fila_comunicaca
         })
 
 #função que orquestra um único processo isolado para a avaliação das matrizes
-def avaliar_todas_as_matrizes(caminho_arquivo_py, banco_10_matrizes, timeout_total_seg=3):
+def avaliar_todas_as_matrizes(equipe_id, caminho_arquivo_py, banco_10_matrizes, timeout_total_seg=30):
     
     #cria um contexto de multiprocessamento configurado por spawn
     ctx = multiprocessing.get_context("spawn")
@@ -152,7 +159,7 @@ def avaliar_todas_as_matrizes(caminho_arquivo_py, banco_10_matrizes, timeout_tot
     #instanciar o objeto do processo
     p = ctx.Process(
         target=_tarefa_lote_processo,
-        args=(caminho_arquivo_py, banco_10_matrizes, fila_comunicacao),
+        args=(equipe_id, caminho_arquivo_py, banco_10_matrizes, fila_comunicacao),
     )
 
     #iniciar a execução do processo e travar a thread principal até acabar
@@ -170,6 +177,7 @@ def avaliar_todas_as_matrizes(caminho_arquivo_py, banco_10_matrizes, timeout_tot
             "detalhes_por_matriz": [],
             "mensagem_erro": f"A execução total ultrapassou o limite de {timeout_total_seg} segundos para o lote.",
         }
+    p.close()
 
     #capturar falha abrupta
     if fila_comunicacao.empty():
@@ -188,9 +196,12 @@ def avaliar_todas_as_matrizes(caminho_arquivo_py, banco_10_matrizes, timeout_tot
 def salvar_historico_local(caminho_codigo_enviado, relatorio, equipe_id):
     
     #criar o armazenamento persistente das submissões
-    diretorio_base = "historico_local_tentativas"
-    diretorio_base = os.path.join(diretorio_base, f"equipe_{equipe_id}")
+    diretorio_base = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}")
     os.makedirs(diretorio_base, exist_ok=True)
+
+    #criar subpasta para os códigos enviados
+    diretorio_codigos = os.path.join(diretorio_base, f"codigos_{equipe_id}")
+    os.makedirs(diretorio_codigos, exist_ok=True)
 
     #carregar a lista de tentativas anteriores de historico.json para a memória
     caminho_historico = os.path.join(diretorio_base, "historico.json")
@@ -206,7 +217,7 @@ def salvar_historico_local(caminho_codigo_enviado, relatorio, equipe_id):
     #copiar o arquivo .py para a pasta de histórico
     timestamp_str = time.strftime("%Y-%m-%d_%H-%M-%S")
     nome_codigo_salvo = f"codigo_{timestamp_str}.py"
-    shutil.copy(caminho_codigo_enviado, os.path.join(diretorio_base, nome_codigo_salvo))
+    shutil.copy(caminho_codigo_enviado, os.path.join(diretorio_codigos, nome_codigo_salvo))
 
     #empacotar os metadados da tentativa e adicionar ao histórico geral
     nova_entrada = {

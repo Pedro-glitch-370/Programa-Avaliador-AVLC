@@ -7,10 +7,13 @@ import streamlit as st
 import plotly.express as px
 import pandas as pd
 from funcoes_suporte import (
+    timestamp_formatado,
+    destacar_buracos,
     validar_pin_equipe,
     calcular_hash_sha256,
     verificar_congelamento,
-    deletar_tentativa_historico)
+    deletar_tentativa_historico,
+    deletar_codigo_final)
 from core_avaliador import (
     avaliar_todas_as_matrizes,
     salvar_historico_local,
@@ -22,43 +25,25 @@ senha_monitor_correta = st.secrets["SENHA_MESTRE_MONITORES"]
 
 #função para carregar banco público
 @st.cache_resource
-def carregar_banco_publico():
-    pasta_banco = "banco_publico"
+def carregar_banco(pasta_banco):
     banco = []
     if not os.path.exists(pasta_banco):
         return []
 
     for arquivo in sorted([
-        f for f in os.listdir(pasta_banco) if f.endswith("_gabarito.npy")
+        f for f in os.listdir(pasta_banco) if f.startswith("gabarito_") and f.endswith(".npy")
     ]):
-        prefixo = arquivo.replace("_gabarito.npy", "")
+        prefixo = arquivo.replace("gabarito_", "").replace(".npy", "")
         banco.append({
             "observada": np.load(
-                os.path.join(pasta_banco, f"{prefixo}_observada.npy")
+                os.path.join(pasta_banco, f"observada_{prefixo}.npy")
             ),
-            "mascara": np.load(os.path.join(pasta_banco, f"{prefixo}_mascara.npy")),
-            "gabarito": np.load(os.path.join(pasta_banco, f"{prefixo}_gabarito.npy")),
-        })
-    return banco
-
-#função para carregar banco oficial
-@st.cache_resource
-def carregar_banco_oficial():
-    pasta_banco = "banco_oficial"
-    banco = []
-    if not os.path.exists(pasta_banco):
-        return []
-
-    for arquivo in sorted([
-        f for f in os.listdir(pasta_banco) if f.endswith("_gabarito.npy")
-    ]):
-        prefixo = arquivo.replace("_gabarito.npy", "")
-        banco.append({
-            "observada": np.load(
-                os.path.join(pasta_banco, f"{prefixo}_observada.npy")
+            "mascara": np.load(
+                os.path.join(pasta_banco, f"mascara_{prefixo}.npy")
             ),
-            "mascara": np.load(os.path.join(pasta_banco, f"{prefixo}_mascara.npy")),
-            "gabarito": np.load(os.path.join(pasta_banco, f"{prefixo}_gabarito.npy")),
+            "gabarito": np.load(
+                os.path.join(pasta_banco, f"gabarito_{prefixo}.npy")
+            ),
         })
     return banco
 
@@ -122,7 +107,7 @@ if not st.session_state.autenticado:
 
             #botão para fazer o ranking
             if st.button("Executar Avaliação Geral"):
-                banco_oficial = carregar_banco_oficial()
+                banco_oficial = carregar_banco("banco_oficial")
                 with st.spinner("Avaliando códigos finais de todas as equipes no Banco Oficial..."):
                     diretorio_base = "historico_local_tentativas"
                     dados_ranking = []
@@ -142,8 +127,7 @@ if not st.session_state.autenticado:
                                 #se a equipe enviou o código final
                                 if os.path.exists(caminho_codigo_final):
                                     #executa a avaliação contra o banco oficial
-                                    relatorio_oficial = avaliar_todas_as_matrizes(caminho_codigo_final, banco_oficial)
-                                    
+                                    relatorio_oficial = avaliar_todas_as_matrizes(equipe_id, caminho_codigo_final, banco_oficial)
                                     status = relatorio_oficial.get("status_geral", "Erro")
                                     nrmse = relatorio_oficial.get("nrmse_medio_agregado")
                                     tempo = relatorio_oficial.get("tempo_total_acumulado", 0.0)
@@ -211,7 +195,7 @@ else:
     )
 
     #mensagens de sucesso/erro após carregar banco público
-    banco_publico = carregar_banco_publico()
+    banco_publico = carregar_banco("banco_publico")
     st.subheader("Banco de Matrizes Públicas")
     if not banco_publico:
         st.error(
@@ -260,10 +244,6 @@ else:
 
             #mostrar matriz observada
             st.markdown("**Observada (Branco = Dado | Preto = Oculto):**")
-            def destacar_buracos(val):
-                if pd.isna(val):
-                    return 'background-color: black; color: black;'
-                return 'background-color: white; color: black;'
             df_estilizado = df_obs.style.map(destacar_buracos).format(
                 lambda x: f"{x:.4f}" if pd.notna(x) else ""
             )
@@ -306,7 +286,7 @@ else:
                     f.write(arquivo_enviado.getbuffer())
 
                 with st.spinner("Rodando testes..."):
-                    relatorio = avaliar_todas_as_matrizes(caminho_temp, banco_publico)
+                    relatorio = avaliar_todas_as_matrizes(equipe_id, caminho_temp, banco_publico)
 
                     #salvar automaticamente o histórico e uma cópia do código
                     salvar_historico_local(caminho_temp, relatorio, equipe_id=int(equipe_id))
@@ -362,17 +342,18 @@ else:
             for idx, tentativa in enumerate(reversed(historico_data), 1):
                 res = tentativa["resultado"]
                 status_tentativa = res["status_geral"]
+                timestamp_tentativa = timestamp_formatado(tentativa['timestamp'])
                 nrmse_val = res.get("nrmse_medio_agregado")
                 nrmse_str = f" - NRMSE: {nrmse_val:.6f}" if nrmse_val is not None else ""
 
                 titulo_expander = (
                     f"Tentativa #{len(historico_data) - idx + 1} | Data:"
-                    f" {tentativa['timestamp']} | {status_tentativa}{nrmse_str}"
+                    f" {timestamp_tentativa} | {status_tentativa}{nrmse_str}"
                 )
 
                 with st.expander(titulo_expander):
                     caminho_arquivo_codigo = os.path.join(
-                        "historico_local_tentativas", f"equipe_{equipe_id}", tentativa["arquivo_codigo"]
+                        "historico_local_tentativas", f"equipe_{equipe_id}", f"codigos_{equipe_id}", tentativa["arquivo_codigo"]
                     )
                     if os.path.exists(caminho_arquivo_codigo):
                         with open(caminho_arquivo_codigo, "r", encoding="utf-8") as arq_py:
@@ -397,6 +378,7 @@ else:
                                 st.metric("Tempo Total Acumulado", f"{res.get('tempo_total_acumulado', 0):.4f} s")
 
                     detalhes = res.get("detalhes_por_matriz")
+                    
                     if detalhes:
                         with st.expander("Ver Detalhes por Matriz"):
                             for item in detalhes:
@@ -408,7 +390,6 @@ else:
                                 with st.expander(f"{icone} Matriz #{matriz_id} — Status: {status_matriz}"):
                                     col_det1, col_det2 = st.columns(2)
                                     with col_det1:
-                                        st.write(f"**ID da Matriz:** {matriz_id}")
                                         st.write(f"**Status:** {status_matriz}")
                                         if "tempo" in item:
                                             st.write(f"**Tempo:** {item['tempo']:.6f} s")
@@ -417,6 +398,39 @@ else:
                                             st.write(f"**RMSE Bruto:** {item['rmse_bruto']:.6f}")
                                         if "nrmse" in item:
                                             st.write(f"**NRMSE:** {item['nrmse']:.6f}")
+
+                                    #visualização da matriz retornada
+                                    if status_matriz == "Sucesso":
+                                        try:
+                                            caminho_saida_aluno = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}", f"saidas_{equipe_id}", f"saida_{matriz_id}.npy")
+                                            caminho_mascara = os.path.join("banco_publico", f"mascara_{matriz_id:02d}.npy")
+                                            
+                                            if os.path.exists(caminho_saida_aluno) and os.path.exists(caminho_mascara):
+                                                matriz_aluno = np.load(caminho_saida_aluno)
+                                                mascara_atual = np.load(caminho_mascara)
+                                                df_saida = pd.DataFrame(matriz_aluno)
+                                                
+                                                def destacar_preenchidos_estilo(val, row_idx, col_idx):
+                                                    try:
+                                                        if mascara_atual[row_idx, col_idx] == 0:
+                                                            return 'background-color: black; color: white;'
+                                                    except Exception:
+                                                        pass
+                                                    return 'background-color: white; color: black;'
+                                                
+                                                df_estilizado = df_saida.style.apply(
+                                                    lambda df: pd.DataFrame(
+                                                        [[destacar_preenchidos_estilo(df.iat[r, c], r, c) for c in range(df.shape[1])] for r in range(df.shape[0])],
+                                                        index=df.index,
+                                                        columns=df.columns
+                                                    ),
+                                                    axis=None
+                                                ).format(lambda x: f"{x:.4f}" if pd.notna(x) else "")
+                                                
+                                                st.markdown("**Matriz Reconstruída (Branco = Observada | Preto = Preenchida):**")
+                                                st.dataframe(df_estilizado, use_container_width=True)
+                                        except Exception as e:
+                                            st.error(f"**Visualização de Matriz Indisponível**: {e}")
 
                     if st.button("🗑️ Deletar esta tentativa", key=f"btn_del_{tentativa['timestamp']}"):
                         deletar_tentativa_historico(
@@ -452,8 +466,14 @@ else:
             try:
                 with open(caminho_meta_final, "r", encoding="utf-8") as f:
                     meta_final = json.load(f)
+
+                timestamp_bruto = meta_final.get('timestamp')
+                timestamp_legivel = timestamp_formatado(timestamp_bruto)
+
                 st.info(
-                    f"Última Atualização: **{meta_final.get('timestamp', 'Desconhecida')}** | "
+                    f"Última Atualização: **{timestamp_legivel}**"
+                )
+                st.info(
                     f"NRMSE Agregado no Lote Público: **{meta_final.get('nrmse', 0):.6f}**"
                 )
             except Exception:
@@ -462,6 +482,9 @@ else:
         with st.expander("Ver Código Final Cadastrado"):
             with open(caminho_arquivo_final, "r", encoding="utf-8") as arq_final:
                 st.code(arq_final.read(), language="python")
+
+            if st.button("🗑️ Deletar Código Final Cadastrado", key=f"btn_del_final_{equipe_id}"):
+                deletar_codigo_final(equipe_id)
     else:
         st.error("Nenhum Código Final enviado por esta equipe ainda.")
 
@@ -496,7 +519,7 @@ else:
 
                 with st.spinner("Validando e avaliando o código final nas matrizes públicas..."):
                     #executar a avaliação para checar se o código é válido e extrair o NRMSE
-                    relatorio_oficial = avaliar_todas_as_matrizes(caminho_temp_oficial, banco_publico)
+                    relatorio_oficial = avaliar_todas_as_matrizes(equipe_id, caminho_temp_oficial, banco_publico)
 
                 if "Sucesso" in relatorio_oficial["status_geral"]:
                     #copiar o código para o destino final

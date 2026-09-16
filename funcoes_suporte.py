@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import ast
 import streamlit as st
+import pandas as pd
 from datetime import datetime
 
 chave_torneio = st.secrets["CHAVE_MESTRE_TORNEIO"]
@@ -11,9 +12,8 @@ chave_torneio = st.secrets["CHAVE_MESTRE_TORNEIO"]
 class AnalisadorSegurancaCodigo(ast.NodeVisitor):
     def __init__(self):
         self.modulos_proibidos = {
-            'os', 'subprocess', 'shutil', 'pathlib', 'sys',  #sistema e arquivos
-            'socket', 'requests', 'urllib', 'http', 'ftplib', #rede e internet
-            'smtplib', 'xmlrpc', 'asyncio'                   #comunicação avançada
+            'os', 'subprocess', 'shutil', 'pathlib', 'sys', 
+            'socket', 'requests', 'urllib', 'http', 'pickle'
         }
         self.builtins_proibidos = {'eval', 'exec', 'compile', 'getattr', 'setattr', '__import__'}
         self.violacoes = []
@@ -33,13 +33,14 @@ class AnalisadorSegurancaCodigo(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node):
-        if isinstance(node.func, ast.Name) and node.func.id == 'open':
-            self.violacoes.append("Uso proibido da função nativa 'open()'.")
-        elif node.func.id in self.builtins_proibidos:
-            self.violacoes.append(f"Uso proibido da função '{node.func.id}()'")
+        if isinstance(node.func, ast.Name):
+            if node.func.id == 'open':
+                self.violacoes.append("Uso proibido da função nativa 'open()'.")
+            elif node.func.id in self.builtins_proibidos:
+                self.violacoes.append(f"Uso proibido da função '{node.func.id}()'")
         self.generic_visit(node)
 
-#função para prrocurar ameaças no arquivo.py
+#função para procurar ameaças no arquivo.py
 def validar_seguranca_codigo(caminho_arquivo):
     with open(caminho_arquivo, "r", encoding="utf-8") as f:
         codigo_fonte = f.read()
@@ -56,6 +57,25 @@ def validar_seguranca_codigo(caminho_arquivo):
         return False, " | ".join(analisador.violacoes)
     
     return True, ""
+
+#função para retornar timestamp formatado
+def timestamp_formatado(timestamp_bruto):
+    timestamp_legivel = "Desconhecida"
+
+    if timestamp_bruto:
+        try:
+            dt = datetime.strptime(timestamp_bruto, "%Y-%m-%d_%H-%M-%S")
+            timestamp_legivel = dt.strftime("%d/%m/%Y às %H:%M:%S")
+        except Exception:
+            timestamp_legivel = str(timestamp_bruto)
+
+    return timestamp_legivel
+
+#função para retornar os valores ocultos
+def destacar_buracos(val):
+    if pd.isna(val):
+        return 'background-color: black; color: black;'
+    return 'background-color: white; color: black;'
 
 #função para gerar pin secreto de cada equipe
 def gerar_pin_equipe(equipe_id: int) -> str:
@@ -101,11 +121,11 @@ def verificar_congelamento():
             
     return False, ""
 
-#função para apagar tentativa do histórico local
+#função para apagar tentativa do histórico
 def deletar_tentativa_historico(equipe_id, arquivo_codigo, timestamp):
     diretorio_base = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}")
     caminho_json = os.path.join(diretorio_base, "historico.json")
-    caminho_py = os.path.join(diretorio_base, arquivo_codigo)
+    caminho_py = os.path.join(diretorio_base, f"codigos_{equipe_id}", arquivo_codigo)
 
     #remover o arquivo .py se ele existir
     if os.path.exists(caminho_py):
@@ -128,5 +148,26 @@ def deletar_tentativa_historico(equipe_id, arquivo_codigo, timestamp):
         except Exception:
             pass
 
-    #recarrega a interface para sumir o item deletado
+    st.rerun()
+
+#função para apagar submissão oficial
+def deletar_codigo_final(equipe_id):
+    diretorio_base = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}")
+    caminho_json = os.path.join(diretorio_base, "meta_final.json")
+    caminho_py = os.path.join(diretorio_base, "codigo_final.py")
+
+    #remover o arquivo final se existir
+    if os.path.exists(caminho_py):
+        try:
+            os.remove(caminho_py)
+        except Exception:
+            pass
+
+    #remover o arquivo de metadados se existir
+    if os.path.exists(caminho_json):
+        try:
+            os.remove(caminho_json)
+        except Exception:
+            pass
+
     st.rerun()

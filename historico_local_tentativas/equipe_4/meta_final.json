@@ -1,8 +1,8 @@
 {
-    "timestamp": "2026-09-15_09-42-22",
+    "timestamp": "2026-09-16_11-31-55",
     "equipe_id": 4,
     "arquivo": "codigo_final.py",
-    "nrmse": 0.151696,
-    "tempo_total": 0.01353,
-    "hash_sha256": "782fdcbe8235a9dbb5bc4cf804b48873aa8d32abb47d383e1761e1916150f533"
+    "nrmse": 0.091,
+    "tempo_total": 0.012287,
+    "hash_sha256": "6834b66141a496b8bd41b9c3fa5e3818571685febf2d0f4f75502de985200aaf"
 }
