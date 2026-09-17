@@ -270,16 +270,18 @@ else:
         st.write("**Atenção:** O arquivo deve ser em Python e conter "
                 "a função `principal(observada, mascara)`.")
         with st.expander("Enviar Código"):
-            with st.form("form_teste"):
-                arquivo_enviado = st.file_uploader(
-                    "Clique em Upload e selecione o arquivo desejado",
-                    type=["py"],
-                )
-                botao_testar = st.form_submit_button("Executar Teste")
+            arquivo_enviado = st.file_uploader(
+                "Clique em Upload e selecione o arquivo desejado",
+                type=["py"],
+                key="uploader_codigo_teste"
+            )
+            botao_testar = st.button("Executar Teste", key="btn_salvar_codigo_teste")
 
         if botao_testar:
             if arquivo_enviado is None:
                 st.error("Selecione um arquivo .py antes de executar.")
+            elif arquivo_enviado.size > tamanho_max_bytes:
+                st.error(f"O arquivo é muito grande ({arquivo_enviado.size / (1024*1024):.2f} MB). O limite máximo permitido é de 5MB.")
             else:
                 caminho_temp = "temp_teste_aluno.py"
                 with open(caminho_temp, "wb") as f:
@@ -496,12 +498,12 @@ else:
     else:
         #form para envio ou sobrescrita do código final
         with st.expander("Enviar Código Final"):
-            with st.form("form_submissao_oficial"):
-                arquivo_oficial = st.file_uploader(
-                    "Selecione o arquivo Python (.py) definitivo para concorrer",
-                    type=["py"],
-                )
-                botao_enviar_oficial = st.form_submit_button("Salvar Código")
+            arquivo_oficial = st.file_uploader(
+                "Selecione o arquivo Python (.py) definitivo para concorrer",
+                type=["py"],
+                key="uploader_codigo_final"
+            )
+            botao_enviar_oficial = st.button("Salvar Código", key="btn_salvar_codigo_final")
 
         if botao_enviar_oficial:
             #dupla checagem caso o estado mude enquanto o form estava aberto

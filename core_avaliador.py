@@ -1,15 +1,29 @@
-import importlib.util
 import json
 import os
 import shutil
-import sys
 import time
 import numpy as np
 import multiprocessing
+import sys
 from funcoes_suporte import validar_seguranca_codigo
+from sandbox_restrito import compilar_e_extrair_principal, ViolacaoSandbox
+
+if sys.platform != "win32":
+    import resource
+else:
+    resource = None
 
 #função pra executar o código da equipe contra todas as matrizes
 def _tarefa_lote_processo(equipe_id, caminho_arquivo_py, banco_10_matrizes, fila_comunicacao):
+    #definindo o limite de memória RAM
+    if resource is not None:
+        try:
+            limite_bytes = 512 * 1024 * 1024 #512 MB
+            resource.setrlimit(resource.RLIMIT_AS, (limite_bytes, limite_bytes))
+
+        except (ValueError, OSError) as e:
+            print(f"Não foi possível definir o limite de memória: {e}")
+            
     try:
         #localizar o arquivo .py enviado pelo aluno pelo caminho absoluto
         caminho_absoluto = os.path.abspath(caminho_arquivo_py)
@@ -23,28 +37,28 @@ def _tarefa_lote_processo(equipe_id, caminho_arquivo_py, banco_10_matrizes, fila
             })
             return
 
-        nome_modulo = "codigo_aluno_temp"
+        #ler o código-fonte como texto, compilar e executar em um namespace restrito
+        with open(caminho_absoluto, "r", encoding="utf-8") as arquivo_codigo:
+            codigo_fonte = arquivo_codigo.read()
 
-        spec = importlib.util.spec_from_file_location(nome_modulo, caminho_absoluto)
-
-        #capturar erro de sintaxe
-        if spec is None or spec.loader is None:
+        try:
+            principal = compilar_e_extrair_principal(codigo_fonte)
+        except SyntaxError as e:
             fila_comunicacao.put({
                 "status_geral": "Erro de Estrutura",
-                "mensagem_erro": "O arquivo não pôde ser importado.",
+                "mensagem_erro": f"Erro de sintaxe: {e}",
             })
             return
-
-        #carregar dinamicamente em memória como se fosse um módulo comum
-        modulo_aluno = importlib.util.module_from_spec(spec)
-        sys.modules[nome_modulo] = modulo_aluno
-        spec.loader.exec_module(modulo_aluno)
-
-        #validar se o script tem a função chamada principal
-        if not hasattr(modulo_aluno, "principal"):
+        except ViolacaoSandbox as e:
+            fila_comunicacao.put({
+                "status_geral": "Reprovado por Violação de Segurança",
+                "mensagem_erro": str(e),
+            })
+            return
+        except AttributeError as e:
             fila_comunicacao.put({
                 "status_geral": "Erro de Estrutura",
-                "mensagem_erro": "O arquivo não contém a função 'principal(observada, mascara)'.",
+                "mensagem_erro": str(e),
             })
             return
 
@@ -66,7 +80,13 @@ def _tarefa_lote_processo(equipe_id, caminho_arquivo_py, banco_10_matrizes, fila
             #cronômetro e output
             inicio = time.perf_counter()
             try:
-                matriz_saida = modulo_aluno.principal(obs, mascara)
+                matriz_saida = principal(obs, mascara)
+            except ViolacaoSandbox as e:
+                fila_comunicacao.put({
+                    "status_geral": f"Reprovado na Matriz #{idx + 1}: Violação de Segurança",
+                    "mensagem_erro": str(e),
+                })
+                return
             except Exception as e:
                 fila_comunicacao.put({
                     "status_geral": f"Reprovado na Matriz #{idx + 1}: Erro de Execução",
