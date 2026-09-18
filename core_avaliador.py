@@ -7,11 +7,14 @@ import multiprocessing
 import sys
 from funcoes_suporte import validar_seguranca_codigo
 from sandbox_restrito import compilar_e_extrair_principal, ViolacaoSandbox
+from banco import salvar_tentativa, inicializar_banco
 
 if sys.platform != "win32":
     import resource
 else:
     resource = None
+
+inicializar_banco()
 
 #função pra executar o código da equipe contra todas as matrizes
 def _tarefa_lote_processo(equipe_id, caminho_arquivo_py, banco_10_matrizes, fila_comunicacao):
@@ -133,7 +136,7 @@ def _tarefa_lote_processo(equipe_id, caminho_arquivo_py, banco_10_matrizes, fila
             posicoes_ocultas = ~mascara
             if not posicoes_ocultas.any():
                 nrmse = 0.0
-                rmse_bruto = 0.0
+                rmse = 0.0
             else:
                 valores_aluno = matriz_saida[posicoes_ocultas]
                 valores_gabarito = gabarito[posicoes_ocultas]
@@ -212,7 +215,7 @@ def avaliar_todas_as_matrizes(equipe_id, caminho_arquivo_py, banco_10_matrizes, 
     #retornar relatório de sucesso
     return fila_comunicacao.get()
 
-#função pra salvar o código enviado e registrar o histórico localmente
+#função pra salvar o código enviado e registrar o histórico
 def salvar_historico_local(caminho_codigo_enviado, relatorio, equipe_id):
     
     #criar o armazenamento persistente das submissões
@@ -223,31 +226,28 @@ def salvar_historico_local(caminho_codigo_enviado, relatorio, equipe_id):
     diretorio_codigos = os.path.join(diretorio_base, f"codigos_{equipe_id}")
     os.makedirs(diretorio_codigos, exist_ok=True)
 
-    #carregar a lista de tentativas anteriores de historico.json para a memória
-    caminho_historico = os.path.join(diretorio_base, "historico.json")
-    historico_geral = []
-
-    if os.path.exists(caminho_historico):
-        try:
-            with open(caminho_historico, "r", encoding="utf-8") as f:
-                historico_geral = json.load(f)
-        except Exception:
-            historico_geral = []
-
     #copiar o arquivo .py para a pasta de histórico
     timestamp_str = time.strftime("%Y-%m-%d_%H-%M-%S")
     nome_codigo_salvo = f"codigo_{timestamp_str}.py"
-    shutil.copy(caminho_codigo_enviado, os.path.join(diretorio_codigos, nome_codigo_salvo))
+    caminho_destino_codigo = os.path.join(diretorio_codigos, nome_codigo_salvo)
+    shutil.copy(caminho_codigo_enviado, caminho_destino_codigo)
+
+    #extrair os dados do relatório retornado
+    status_geral = relatorio.get("status_geral", "mensagem_erro")
+    nrmse = relatorio.get("nrmse_medio_agregado", 0.0)
+    if nrmse is None:
+        nrmse = 0.0
+    
+    tempo_total = relatorio.get("tempo_total_acumulado", 0.0)
+    detalhes = relatorio.get("detalhes_por_matriz")
 
     #empacotar os metadados da tentativa e adicionar ao histórico geral
-    nova_entrada = {
-        "equipe_id": equipe_id,
-        "timestamp": timestamp_str,
-        "arquivo_codigo": nome_codigo_salvo,
-        "resultado": relatorio,
-    }
-    historico_geral.append(nova_entrada)
-
-    #sobrescrever o historico.json
-    with open(caminho_historico, "w", encoding="utf-8") as f:
-        json.dump(historico_geral, f, indent=4, ensure_ascii=False)
+    salvar_tentativa(
+        equipe_id=str(equipe_id),
+        timestamp=timestamp_str,
+        arquivo_codigo=caminho_destino_codigo,
+        status_geral=status_geral,
+        nrmse=float(nrmse),
+        tempo_total=float(tempo_total),
+        detalhes=detalhes
+    )

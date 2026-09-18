@@ -1,4 +1,3 @@
-import json
 import os
 import shutil
 import time
@@ -17,6 +16,17 @@ from funcoes_suporte import (
 from core_avaliador import (
     avaliar_todas_as_matrizes,
     salvar_historico_local,
+)
+from banco import (
+    consultar_historico_equipe,
+    consultar_submissao_final,
+    deletar_tentativa,
+    deletar_submissao_final,
+    salvar_ou_atualizar_final,
+    consultar_todas_submissoes_finais,
+    carregar_config_torneio,
+    salvar_config_torneio,
+    consultar_detalhes_tentativa
 )
 
 #constantes secretas
@@ -86,8 +96,6 @@ if not st.session_state.autenticado:
 
     #painel dos monitores para ranking automatizado
     if modo_acesso == "Painel dos Monitores":
-        caminho_config = "config_torneio.json"
-
         st.subheader("Painel dos Monitores")
         st.info("Área restrita para visualização do ranking final das equipes. Insira a senha da monitoria para acessar as funções de administrador.")
             
@@ -96,14 +104,8 @@ if not st.session_state.autenticado:
         if senha_monitor == senha_monitor_correta:
             st.success("Acesso liberado ao Ranking Oficial.")
 
-            #carregar estado atual do torneio
-            config_atual = {"congelamento_manual": False}
-            if os.path.exists(caminho_config):
-                try:
-                    with open(caminho_config, "r", encoding="utf-8") as f:
-                        config_atual = json.load(f)
-                except:
-                    pass
+            #carregar estado atual de congelamento
+            config_atual = carregar_config_torneio()
 
             #botão para fazer o ranking
             if st.button("Executar Avaliação Geral"):
@@ -111,48 +113,62 @@ if not st.session_state.autenticado:
                 with st.spinner("Avaliando códigos finais de todas as equipes no Banco Oficial..."):
                     diretorio_base = "historico_local_tentativas"
                     dados_ranking = []
-                    
-                    if os.path.exists(diretorio_base):
-                        #procurar por todas as pastas de equipes
-                        for nome_pasta in os.listdir(diretorio_base):
-                            if nome_pasta.startswith("equipe_"):
-                                try:
-                                    equipe_id_str = nome_pasta.split("_")[1]
-                                    equipe_id = int(equipe_id_str)
-                                except ValueError:
-                                    continue
-                                    
-                                caminho_codigo_final = os.path.join(diretorio_base, nome_pasta, "codigo_final.py")
-                                
-                                #se a equipe enviou o código final
-                                if os.path.exists(caminho_codigo_final):
-                                    #executa a avaliação contra o banco oficial
-                                    relatorio_oficial = avaliar_todas_as_matrizes(equipe_id, caminho_codigo_final, banco_oficial)
-                                    status = relatorio_oficial.get("status_geral", "Erro")
-                                    nrmse = relatorio_oficial.get("nrmse_medio_agregado")
-                                    tempo = relatorio_oficial.get("tempo_total_acumulado", 0.0)
-                                    
-                                    if "Sucesso" in status and nrmse is not None:
-                                        dados_ranking.append({
-                                            "Equipe": f"Equipe #{equipe_id}",
-                                            "Status": "Válido",
-                                            "NRMSE Agregado": nrmse,
-                                            "Tempo Total (s)": tempo
-                                        })
-                                    else:
-                                        dados_ranking.append({
-                                            "Equipe": f"Equipe #{equipe_id}",
-                                            "Status": f"Falha ({status})",
-                                            "NRMSE Agregado": float('inf'),
-                                            "Tempo Total (s)": tempo
-                                        })
 
+                    #buscar todas as submissões das equipes
+                    todas_submissoes = consultar_todas_submissoes_finais()
+
+                    #procurar por todas as pastas de equipes
+                    for sub in todas_submissoes:
+                        equipe_id = sub["equipe_id"]
+                        codigo_fonte = sub.get("codigo_fonte")
+
+                        #se a equipe enviou o código final
+                        if codigo_fonte:
+                            caminho_temp_ranking = f"temp_ranking_equipe_{equipe_id}.py"
+                            with open(caminho_temp_ranking, "w", encoding="utf-8") as temp_file:
+                                temp_file.write(codigo_fonte)
+                            
+                            try:
+                                #executa a avaliação contra o banco oficial
+                                relatorio_oficial = avaliar_todas_as_matrizes(equipe_id, caminho_temp_ranking, banco_oficial)
+                                status = relatorio_oficial.get("status_geral", "mensagem_erro")
+                                nrmse = relatorio_oficial.get("nrmse_medio_agregado")
+                                tempo = relatorio_oficial.get("tempo_total_acumulado", 0.0)
+                                
+                                if "Sucesso" in status and nrmse is not None:
+                                    dados_ranking.append({
+                                        "Equipe": f"Equipe #{equipe_id}",
+                                        "Status": "Válido",
+                                        "NRMSE Agregado": float(nrmse),
+                                        "Tempo Total (s)": float(tempo)
+                                    })
+                                else:
+                                    dados_ranking.append({
+                                        "Equipe": f"Equipe #{equipe_id}",
+                                        "Status": f"Falha ({status})",
+                                        "NRMSE Agregado": float('inf'),
+                                        "Tempo Total (s)": float(tempo)
+                                    })
+                                    
+                            finally:
+                                if os.path.exists(caminho_temp_ranking):
+                                    try:
+                                        os.remove(caminho_temp_ranking)
+                                    except Exception:
+                                        pass
+                        else:
+                            dados_ranking.append({
+                                "Equipe": f"Equipe #{equipe_id}",
+                                "Status": "Falha (Código ausente no banco)",
+                                "NRMSE Agregado": float('inf'),
+                                "Tempo Total (s)": 0.0
+                            })
                     #ordenação
                     if dados_ranking:
                         df_ranking = pd.DataFrame(dados_ranking)
-                        df_ranking = df_ranking.sort_values(by="NRMSE Agregado", ascending=True).reset_index(drop=True)
+                        df_ranking = df_ranking.sort_values(by=["NRMSE Agregado", "Tempo Total (s)"], ascending=[True, True]).reset_index(drop=True)
                         
-                        df_ranking.index = df_ranking.index + 1
+                        df_ranking.index += 1
                         df_ranking.index.name = "Posição"
                         
                         st.subheader("Ranking Oficial do Torneio")
@@ -167,9 +183,7 @@ if not st.session_state.autenticado:
 
             #se o monitor alterar o botão, salva no JSON
             if novo_estado_congelamento != config_atual.get("congelamento_manual", False):
-                config_atual["congelamento_manual"] = novo_estado_congelamento
-                with open(caminho_config, "w", encoding="utf-8") as f:
-                    json.dump(config_atual, f)
+                salvar_config_torneio(novo_estado_congelamento)
                 st.rerun()
 
         elif senha_monitor:
@@ -321,42 +335,35 @@ else:
                     st.error(f"Status: {status}")
                     if relatorio.get("mensagem_erro"):
                         st.warning(f"Detalhes: {relatorio['mensagem_erro']}")
-                    if relatorio.get("detalhes_por_matriz"):
-                        st.json(relatorio["detalhes_por_matriz"])
 
     #histórico de tentativas locais
     st.divider()
     st.subheader("Histórico de Tentativas Locais")
 
-    caminho_historico_equipe = os.path.join(
-        "historico_local_tentativas", f"equipe_{equipe_id}", "historico.json"
-    )
+    historico_data = consultar_historico_equipe(equipe_id)
 
-    if os.path.exists(caminho_historico_equipe):
+    if historico_data:
         try:
-            with open(caminho_historico_equipe, "r", encoding="utf-8") as f:
-                historico_data = json.load(f)
-
             st.write(
                 f"Total de submissões realizadas: **{len(historico_data)}**"
             )
 
-            for idx, tentativa in enumerate(reversed(historico_data), 1):
-                res = tentativa["resultado"]
-                status_tentativa = res["status_geral"]
-                timestamp_tentativa = timestamp_formatado(tentativa['timestamp'])
-                nrmse_val = res.get("nrmse_medio_agregado")
-                nrmse_str = f" - NRMSE: {nrmse_val:.6f}" if nrmse_val is not None else ""
+            for idx, tentativa in enumerate(historico_data):
+                tentativa_id = tentativa["id"]
+                status_tentativa = tentativa["status_geral"]
+                timestamp_tentativa = timestamp_formatado(tentativa["timestamp"])
+                tempo_total_val = tentativa["tempo_total"]
+
+                nrmse_val = tentativa["nrmse"]
+                nrmse_str = f" - NRMSE: {nrmse_val:.6f}" if status_tentativa == "Sucesso" else ""
 
                 titulo_expander = (
-                    f"Tentativa #{len(historico_data) - idx + 1} | Data:"
+                    f"Tentativa #{len(historico_data) - idx} | Data:"
                     f" {timestamp_tentativa} | {status_tentativa}{nrmse_str}"
                 )
 
                 with st.expander(titulo_expander):
-                    caminho_arquivo_codigo = os.path.join(
-                        "historico_local_tentativas", f"equipe_{equipe_id}", f"codigos_{equipe_id}", tentativa["arquivo_codigo"]
-                    )
+                    caminho_arquivo_codigo = tentativa["arquivo_codigo"]
                     if os.path.exists(caminho_arquivo_codigo):
                         with open(caminho_arquivo_codigo, "r", encoding="utf-8") as arq_py:
                             codigo_fonte = arq_py.read()
@@ -365,81 +372,87 @@ else:
                             st.code(codigo_fonte, language="python")
 
                     with st.expander("Ver Status Geral"):
-                        if "mensagem_erro" in res and res["mensagem_erro"]:
-                            st.error(f"**Status Geral:** {status_tentativa}")
-                            st.error(f"**Mensagem de Erro:** {res['mensagem_erro']}")
+                        if status_tentativa != "Sucesso":
+                            st.error(f"**Status de Erro:** {status_tentativa}")
                         else:
                             col_m1, col_m2 = st.columns(2)
                             with col_m1:
-                                nrmse_val = res.get("nrmse_medio_agregado")
                                 if nrmse_val is not None:
                                         st.metric("NRMSE Médio Agregado", f"{nrmse_val:.6f}")
                                 else:
-                                        st.metric("Status Geral", res.get("status_geral", "Erro"))
+                                        st.metric("Status Geral", status_tentativa)
                             with col_m2:
-                                st.metric("Tempo Total Acumulado", f"{res.get('tempo_total_acumulado', 0):.4f} s")
+                                st.metric("Tempo Total Acumulado", f"{tempo_total_val:.4f} s")
 
-                    detalhes = res.get("detalhes_por_matriz")
-                    
-                    if detalhes:
-                        with st.expander("Ver Detalhes por Matriz"):
-                            for item in detalhes:
-                                matriz_id = item.get("matriz_id")
-                                status_matriz = item.get("status")
-                            
-                                icone = "✅" if status_matriz == "Sucesso" else "❌"
-                            
-                                with st.expander(f"{icone} Matriz #{matriz_id} — Status: {status_matriz}"):
+                    pasta_saidas = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}", f"saidas_{equipe_id}")
+                    detalhes_banco = consultar_detalhes_tentativa(tentativa_id)
+                    mapa_detalhes = {d["matriz_id"]: d for d in detalhes_banco}
+
+                    with st.expander("Ver Detalhes por Matriz"):
+                        for matriz_id in range(1, 11):
+                            caminho_saida_aluno = os.path.join(pasta_saidas, f"saida_{matriz_id}.npy")
+                            caminho_mascara = os.path.join("banco_publico", f"mascara_{matriz_id:02d}.npy")
+
+                            info_matriz = mapa_detalhes.get(matriz_id, {})
+                            status_matriz = info_matriz.get("status_matriz", status_tentativa)
+                            icone = "✅" if status_tentativa == "Sucesso" else "❌"
+
+                            #visualização da matriz retornada
+                            with st.expander(f"{icone} Matriz #{matriz_id} — Status: {status_matriz}"):
+
+                                #exibição das métricas de cada matriz
+                                if status_matriz == "Sucesso":
                                     col_det1, col_det2 = st.columns(2)
                                     with col_det1:
-                                        st.write(f"**Status:** {status_matriz}")
-                                        if "tempo" in item:
-                                            st.write(f"**Tempo:** {item['tempo']:.6f} s")
+                                        st.write(f"**Tempo:** {info_matriz.get('tempo', 0.0):.6f} s")
+                                        st.write(f"**RMSE Bruto:** {info_matriz.get('rmse_bruto', 0.0):.6f}")
                                     with col_det2:
-                                        if "rmse_bruto" in item:
-                                            st.write(f"**RMSE Bruto:** {item['rmse_bruto']:.6f}")
-                                        if "nrmse" in item:
-                                            st.write(f"**NRMSE:** {item['nrmse']:.6f}")
+                                        st.write(f"**NRMSE:** {info_matriz.get('nrmse', 0.0):.6f}")
+                                
+                                if os.path.exists(caminho_saida_aluno) and os.path.exists(caminho_mascara):
+                                    try:
+                                        matriz_aluno = np.load(caminho_saida_aluno)
+                                        mascara_atual = np.load(caminho_mascara)
+                                        df_saida = pd.DataFrame(matriz_aluno)
+                                        
+                                        def destacar_preenchidos_estilo(val, row_idx, col_idx):
+                                            try:
+                                                if mascara_atual[row_idx, col_idx] == 0:
+                                                    return 'background-color: black; color: white;'
+                                            except Exception:
+                                                pass
+                                            return 'background-color: white; color: black;'
+                                        
+                                        df_estilizado = df_saida.style.apply(
+                                            lambda df: pd.DataFrame(
+                                                [[destacar_preenchidos_estilo(df.iat[r, c], r, c) for c in range(df.shape[1])] for r in range(df.shape[0])],
+                                                index=df.index,
+                                                columns=df.columns
+                                            ),
+                                            axis=None
+                                        ).format(lambda x: f"{x:.4f}" if pd.notna(x) else "")
+                                        
+                                        st.markdown("**Matriz Reconstruída (Branco = Observada | Preto = Preenchida):**")
+                                        st.dataframe(df_estilizado, use_container_width=True)
 
-                                    #visualização da matriz retornada
-                                    if status_matriz == "Sucesso":
-                                        try:
-                                            caminho_saida_aluno = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}", f"saidas_{equipe_id}", f"saida_{matriz_id}.npy")
-                                            caminho_mascara = os.path.join("banco_publico", f"mascara_{matriz_id:02d}.npy")
-                                            
-                                            if os.path.exists(caminho_saida_aluno) and os.path.exists(caminho_mascara):
-                                                matriz_aluno = np.load(caminho_saida_aluno)
-                                                mascara_atual = np.load(caminho_mascara)
-                                                df_saida = pd.DataFrame(matriz_aluno)
-                                                
-                                                def destacar_preenchidos_estilo(val, row_idx, col_idx):
-                                                    try:
-                                                        if mascara_atual[row_idx, col_idx] == 0:
-                                                            return 'background-color: black; color: white;'
-                                                    except Exception:
-                                                        pass
-                                                    return 'background-color: white; color: black;'
-                                                
-                                                df_estilizado = df_saida.style.apply(
-                                                    lambda df: pd.DataFrame(
-                                                        [[destacar_preenchidos_estilo(df.iat[r, c], r, c) for c in range(df.shape[1])] for r in range(df.shape[0])],
-                                                        index=df.index,
-                                                        columns=df.columns
-                                                    ),
-                                                    axis=None
-                                                ).format(lambda x: f"{x:.4f}" if pd.notna(x) else "")
-                                                
-                                                st.markdown("**Matriz Reconstruída (Branco = Observada | Preto = Preenchida):**")
-                                                st.dataframe(df_estilizado, use_container_width=True)
-                                        except Exception as e:
-                                            st.error(f"**Visualização de Matriz Indisponível**: {e}")
+                                    except Exception as e:
+                                        st.error(f"**Visualização de Matriz Indisponível**: {e}")
 
-                    if st.button("🗑️ Deletar esta tentativa", key=f"btn_del_{tentativa['timestamp']}"):
-                        deletar_tentativa_historico(
-                            equipe_id,
-                            tentativa['arquivo_codigo'], 
-                            tentativa['timestamp']
-                        )
+                    if st.button("🗑️ Deletar esta tentativa", key=f"btn_del_{tentativa_id}"):
+                        try:
+                            apagado_no_banco = deletar_tentativa(tentativa_id)
+                            if not apagado_no_banco:
+                                st.error(
+                                    f"O registro (ID {tentativa_id}) não foi encontrado no banco "
+                                    "— nada foi apagado."
+                                )
+                            else:
+                                deletar_tentativa_historico(caminho_arquivo_codigo)
+                                st.success("Tentativa removida do banco e do histórico local.")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"Falha ao deletar tentativa do banco de dados: {e}")
+
         except Exception:
             st.info("Não foi possível carregar o histórico de tentativas.")
     else:
@@ -458,35 +471,32 @@ else:
     os.makedirs(caminho_pasta_equipe, exist_ok=True)
         
     caminho_arquivo_final = os.path.join(caminho_pasta_equipe, "codigo_final.py")
-    caminho_meta_final = os.path.join(caminho_pasta_equipe, "meta_final.json")
+    submissao_final = consultar_submissao_final(equipe_id)
 
     #status caso já exista uma submissão oficial
-    if os.path.exists(caminho_arquivo_final):
+    if submissao_final and os.path.exists(caminho_arquivo_final):
         st.success("Sua equipe já possui um **Código Final** registrado no sistema.")
-            
-        if os.path.exists(caminho_meta_final):
-            try:
-                with open(caminho_meta_final, "r", encoding="utf-8") as f:
-                    meta_final = json.load(f)
+        timestamp_bruto = submissao_final.get("timestamp")
+        timestamp_legivel = timestamp_formatado(timestamp_bruto)
 
-                timestamp_bruto = meta_final.get('timestamp')
-                timestamp_legivel = timestamp_formatado(timestamp_bruto)
-
-                st.info(
-                    f"Última Atualização: **{timestamp_legivel}**"
-                )
-                st.info(
-                    f"NRMSE Agregado no Lote Público: **{meta_final.get('nrmse', 0):.6f}**"
-                )
-            except Exception:
-                pass
+        st.info(f"Última Atualização: **{timestamp_legivel}**")
+        st.info(f"NRMSE Agregado no Lote Público: **{submissao_final.get("nrmse", 0):.6f}**")
             
         with st.expander("Ver Código Final Cadastrado"):
             with open(caminho_arquivo_final, "r", encoding="utf-8") as arq_final:
                 st.code(arq_final.read(), language="python")
 
             if st.button("🗑️ Deletar Código Final Cadastrado", key=f"btn_del_final_{equipe_id}"):
-                deletar_codigo_final(equipe_id)
+                try:
+                    apagado_no_banco = deletar_submissao_final(equipe_id)
+                    if not apagado_no_banco:
+                        st.error("Nenhuma submissão final encontrada no banco para esta equipe.")
+                    else:
+                        deletar_codigo_final(equipe_id)
+                        st.success("Código final removido do banco e do disco.")
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Falha ao deletar submissão final: {e}")
     else:
         st.error("Nenhum Código Final enviado por esta equipe ainda.")
 
@@ -532,23 +542,25 @@ else:
 
                     #calcular o hash SHA-256 do arquivo salvo e salvar os metadados
                     hash_arquivo_final = calcular_hash_sha256(caminho_arquivo_final)
-                    meta_dados = {
-                        "timestamp": timestamp_oficial,
-                        "equipe_id": equipe_id,
-                        "arquivo": "codigo_final.py",
-                        "nrmse": nrmse_oficial,
-                        "tempo_total": relatorio_oficial["tempo_total_acumulado"],
-                        "hash_sha256": hash_arquivo_final
-                    }
-                    with open(caminho_meta_final, "w", encoding="utf-8") as f:
-                        json.dump(meta_dados, f, indent=4, ensure_ascii=False)
+                    with open(caminho_arquivo_final, "r", encoding="utf-8") as arq_fonte:
+                        codigo_fonte_final = arq_fonte.read()
+
+                    salvar_ou_atualizar_final(
+                        equipe_id=str(equipe_id),
+                        timestamp=timestamp_oficial,
+                        arquivo_codigo="codigo_final.py",
+                        nrmse=float(nrmse_oficial),
+                        tempo_total=float(relatorio_oficial["tempo_total_acumulado"]),
+                        hash_sha256=hash_arquivo_final,
+                        codigo_fonte=codigo_fonte_final,
+                    )
 
                     st.success("A submissão oficial foi registrada com sucesso.")
                 else:
                     st.error(f"**Código final rejeitado.** Confirme antes que o código está sem erros estruturais e válido para todas as matrizes públicas.")
-                    st.error(f"Status: {relatorio_oficial['status_geral']}")
+                    st.error(f"Status: {relatorio_oficial["status_geral"]}")
                     if relatorio_oficial.get("mensagem_erro"):
-                        st.warning(f"Detalhes: {relatorio_oficial['mensagem_erro']}")
+                        st.warning(f"Detalhes: {relatorio_oficial["mensagem_erro"]}")
 
                 if os.path.exists(caminho_temp_oficial):
                     os.remove(caminho_temp_oficial)

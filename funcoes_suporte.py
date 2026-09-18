@@ -6,6 +6,7 @@ import ast
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from banco import carregar_config_torneio
 
 chave_torneio = st.secrets["CHAVE_MESTRE_TORNEIO"]
 
@@ -103,48 +104,24 @@ def calcular_hash_sha256(caminho_arquivo):
 
 #função para controlar o congelamento dos códigos
 def verificar_congelamento():
+    config = carregar_config_torneio()
+
     #congelar por data (a partir de 21 de novembro)
     data_limite = datetime(2026, 11, 21, 0, 0, 0)
     if datetime.now() >= data_limite:
         return True, "O prazo limite de submissões foi encerrado."
     
     #congelar pelo painel dos monitores
-    caminho_config = "config_torneio.json"
-    if os.path.exists(caminho_config):
-        try:
-            with open(caminho_config, "r", encoding="utf-8") as f:
-                config = json.load(f)
-                if config.get("congelamento_manual", False):
-                    return True, "O torneio foi congelado pelos monitores."
-        except Exception:
-            pass
+    if config.get("congelamento_manual", False):
+        return True, "O torneio foi congelado manualmente pelos monitores."
             
     return False, ""
 
 #função para apagar tentativa do histórico
-def deletar_tentativa_historico(equipe_id, arquivo_codigo, timestamp):
-    diretorio_base = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}")
-    caminho_json = os.path.join(diretorio_base, "historico.json")
-    caminho_py = os.path.join(diretorio_base, f"codigos_{equipe_id}", arquivo_codigo)
-
-    #remover o arquivo .py se ele existir
-    if os.path.exists(caminho_py):
+def deletar_tentativa_historico(arquivo_codigo):
+    if os.path.exists(arquivo_codigo):
         try:
-            os.remove(caminho_py)
-        except Exception:
-            pass
-
-    #remover o registro do arquivo historico.json
-    if os.path.exists(caminho_json):
-        try:
-            with open(caminho_json, "r", encoding="utf-8") as f:
-                historico_geral = json.load(f)
-            
-            #tirar o item com o timestamp correspondente
-            historico_geral = [t for t in historico_geral if t["timestamp"] != timestamp]
-
-            with open(caminho_json, "w", encoding="utf-8") as f:
-                json.dump(historico_geral, f, indent=4, ensure_ascii=False)
+            os.remove(arquivo_codigo)
         except Exception:
             pass
 
@@ -153,20 +130,12 @@ def deletar_tentativa_historico(equipe_id, arquivo_codigo, timestamp):
 #função para apagar submissão oficial
 def deletar_codigo_final(equipe_id):
     diretorio_base = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}")
-    caminho_json = os.path.join(diretorio_base, "meta_final.json")
     caminho_py = os.path.join(diretorio_base, "codigo_final.py")
 
     #remover o arquivo final se existir
     if os.path.exists(caminho_py):
         try:
             os.remove(caminho_py)
-        except Exception:
-            pass
-
-    #remover o arquivo de metadados se existir
-    if os.path.exists(caminho_json):
-        try:
-            os.remove(caminho_json)
         except Exception:
             pass
 
