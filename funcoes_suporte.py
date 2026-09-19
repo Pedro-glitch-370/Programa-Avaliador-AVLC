@@ -1,5 +1,7 @@
-import json
 import os
+import shutil
+import stat
+import time
 import hashlib
 import hmac
 import ast
@@ -117,26 +119,64 @@ def verificar_congelamento():
             
     return False, ""
 
-#função para apagar tentativa do histórico
-def deletar_tentativa_historico(arquivo_codigo):
-    if os.path.exists(arquivo_codigo):
-        try:
-            os.remove(arquivo_codigo)
-        except Exception:
-            pass
+#handler para WinError 5
+def _forcar_permissao_e_repetir(func, caminho, exc_info):
+    try:
+        os.chmod(caminho, stat.S_IWRITE)
+        func(caminho)
+    except Exception:
+        pass
 
-    st.rerun()
+#função para repetir tentativas de deletar árvore
+def _remover_arvore_com_retentativas(caminho, tentativas=5, espera_seg=0.25):
+    if not os.path.exists(caminho):
+        return True
+
+    ultimo_erro = None
+    for _ in range(tentativas):
+        try:
+            shutil.rmtree(caminho, onerror=_forcar_permissao_e_repetir)
+            return not os.path.exists(caminho)
+        except FileNotFoundError:
+            return True
+        except PermissionError as e:
+            ultimo_erro = e
+            time.sleep(espera_seg)
+
+    if ultimo_erro:
+        print(f"Aviso: não foi possível remover '{caminho}' após {tentativas} tentativas: {ultimo_erro}")
+    return False
+
+#função para repetir tentativas de deletar arquivo
+def _remover_arquivo_com_retentativas(caminho, tentativas=5, espera_seg=0.25):
+    if not os.path.exists(caminho):
+        return True
+
+    ultimo_erro = None
+    for _ in range(tentativas):
+        try:
+            os.chmod(caminho, stat.S_IWRITE)
+            os.remove(caminho)
+            return True
+        except FileNotFoundError:
+            return True
+        except PermissionError as e:
+            ultimo_erro = e
+            time.sleep(espera_seg)
+
+    if ultimo_erro:
+        print(f"Aviso: não foi possível remover '{caminho}' após {tentativas} tentativas: {ultimo_erro}")
+    return False
+
+#função para apagar tentativa do histórico
+def deletar_tentativa_historico(caminho_arquivo_codigo):
+    if not caminho_arquivo_codigo:
+        return True
+    pasta_tentativa = os.path.dirname(caminho_arquivo_codigo)
+    return _remover_arvore_com_retentativas(pasta_tentativa)
 
 #função para apagar submissão oficial
 def deletar_codigo_final(equipe_id):
     diretorio_base = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}")
     caminho_py = os.path.join(diretorio_base, "codigo_final.py")
-
-    #remover o arquivo final se existir
-    if os.path.exists(caminho_py):
-        try:
-            os.remove(caminho_py)
-        except Exception:
-            pass
-
-    st.rerun()
+    return _remover_arquivo_com_retentativas(caminho_py)

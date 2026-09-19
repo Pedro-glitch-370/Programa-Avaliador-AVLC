@@ -90,14 +90,15 @@ def salvar_tentativa(equipe_id, timestamp, arquivo_codigo, status_geral, nrmse, 
         cursor = conexao.cursor()
 
         #salvar os metadados da tentativa
-        conexao.execute("""
+        cursor.execute("""
             INSERT INTO tentativas (equipe_id, timestamp, arquivo_codigo, status_geral, nrmse, tempo_total)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (str(equipe_id), timestamp, arquivo_codigo, status_geral, nrmse, tempo_total))
 
+        tentativa_id = cursor.lastrowid
+
         #salvar os detalhes de cada matriz
         if detalhes:
-            tentativa_id = cursor.lastrowid
             if isinstance(detalhes, dict):
                 itens_detalhes = detalhes.items()
             else:
@@ -149,7 +150,7 @@ def consultar_submissao_final(equipe_id):
         row = cursor.fetchone()
         return dict(row) if row else None
 
-#função para deletar uma tentativa do histórico pelo ID
+#função para deletar uma tentativa  e seus detalhes pelo ID
 def deletar_tentativa(tentativa_id):
     try:
         id_limpo = int(tentativa_id)
@@ -157,7 +158,9 @@ def deletar_tentativa(tentativa_id):
         id_limpo = tentativa_id
 
     with _conexao() as conexao:
-        cursor = conexao.execute("DELETE FROM tentativas WHERE id = ?", (id_limpo,))
+        cursor = conexao.cursor()
+        cursor.execute("DELETE FROM detalhes_tentativas WHERE tentativa_id = ?", (id_limpo,))
+        cursor.execute("DELETE FROM tentativas WHERE id = ?", (id_limpo,))
         return cursor.rowcount > 0  #confirmar que algo foi realmente apagado
 
 #função para remover submissão final

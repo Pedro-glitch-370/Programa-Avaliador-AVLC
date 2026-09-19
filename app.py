@@ -130,7 +130,8 @@ if not st.session_state.autenticado:
                             
                             try:
                                 #executa a avaliação contra o banco oficial
-                                relatorio_oficial = avaliar_todas_as_matrizes(equipe_id, caminho_temp_ranking, banco_oficial)
+                                timestamp_oficial = time.strftime("%Y-%m-%d_%H-%M-%S")
+                                relatorio_oficial = avaliar_todas_as_matrizes(equipe_id, caminho_temp_ranking, banco_oficial, timestamp_oficial)
                                 status = relatorio_oficial.get("status_geral", "mensagem_erro")
                                 nrmse = relatorio_oficial.get("nrmse_medio_agregado")
                                 tempo = relatorio_oficial.get("tempo_total_acumulado", 0.0)
@@ -302,10 +303,11 @@ else:
                     f.write(arquivo_enviado.getbuffer())
 
                 with st.spinner("Rodando testes..."):
-                    relatorio = avaliar_todas_as_matrizes(equipe_id, caminho_temp, banco_publico)
+                    timestamp_str = time.strftime("%Y-%m-%d_%H-%M-%S")
+                    relatorio = avaliar_todas_as_matrizes(equipe_id, caminho_temp, banco_publico, timestamp_str)
 
                     #salvar automaticamente o histórico e uma cópia do código
-                    salvar_historico_local(caminho_temp, relatorio, equipe_id=int(equipe_id))
+                    salvar_historico_local(caminho_temp, relatorio, equipe_id, timestamp_str)
 
                 if os.path.exists(caminho_temp):
                     os.remove(caminho_temp)
@@ -384,59 +386,61 @@ else:
                             with col_m2:
                                 st.metric("Tempo Total Acumulado", f"{tempo_total_val:.4f} s")
 
-                    pasta_saidas = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}", f"saidas_{equipe_id}")
+                    pasta_saidas = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}", f"tentativa_{tentativa['timestamp']}", "saidas")
                     detalhes_banco = consultar_detalhes_tentativa(tentativa_id)
                     mapa_detalhes = {d["matriz_id"]: d for d in detalhes_banco}
 
                     with st.expander("Ver Detalhes por Matriz"):
-                        for matriz_id in range(1, 11):
-                            caminho_saida_aluno = os.path.join(pasta_saidas, f"saida_{matriz_id}.npy")
-                            caminho_mascara = os.path.join("banco_publico", f"mascara_{matriz_id:02d}.npy")
+                        if status_tentativa == "Sucesso":
+                            for matriz_id in range(1, 11):
+                                caminho_saida_aluno = os.path.join(pasta_saidas, f"saida_{matriz_id}.npy")
+                                caminho_mascara = os.path.join("banco_publico", f"mascara_{matriz_id:02d}.npy")
 
-                            info_matriz = mapa_detalhes.get(matriz_id, {})
-                            status_matriz = info_matriz.get("status_matriz", status_tentativa)
-                            icone = "✅" if status_tentativa == "Sucesso" else "❌"
+                                info_matriz = mapa_detalhes.get(matriz_id, {})
+                                status_matriz = info_matriz.get("status_matriz", status_tentativa)
 
-                            #visualização da matriz retornada
-                            with st.expander(f"{icone} Matriz #{matriz_id} — Status: {status_matriz}"):
+                                #visualização da matriz retornada
+                                with st.expander(f"Matriz #{matriz_id} — Status: {status_matriz}"):
 
-                                #exibição das métricas de cada matriz
-                                if status_matriz == "Sucesso":
-                                    col_det1, col_det2 = st.columns(2)
-                                    with col_det1:
-                                        st.write(f"**Tempo:** {info_matriz.get('tempo', 0.0):.6f} s")
-                                        st.write(f"**RMSE Bruto:** {info_matriz.get('rmse_bruto', 0.0):.6f}")
-                                    with col_det2:
-                                        st.write(f"**NRMSE:** {info_matriz.get('nrmse', 0.0):.6f}")
-                                
-                                if os.path.exists(caminho_saida_aluno) and os.path.exists(caminho_mascara):
-                                    try:
-                                        matriz_aluno = np.load(caminho_saida_aluno)
-                                        mascara_atual = np.load(caminho_mascara)
-                                        df_saida = pd.DataFrame(matriz_aluno)
-                                        
-                                        def destacar_preenchidos_estilo(val, row_idx, col_idx):
+                                    #exibição das métricas de cada matriz
+                                    if status_matriz == "Sucesso":
+                                        col_det1, col_det2 = st.columns(2)
+                                        with col_det1:
+                                            st.write(f"**Tempo:** {info_matriz.get('tempo', 0.0):.6f} s")
+                                            st.write(f"**RMSE Bruto:** {info_matriz.get('rmse_bruto', 0.0):.6f}")
+                                        with col_det2:
+                                            st.write(f"**NRMSE:** {info_matriz.get('nrmse', 0.0):.6f}")
+                                    
+                                        if os.path.exists(caminho_saida_aluno) and os.path.exists(caminho_mascara):
                                             try:
-                                                if mascara_atual[row_idx, col_idx] == 0:
-                                                    return 'background-color: black; color: white;'
-                                            except Exception:
-                                                pass
-                                            return 'background-color: white; color: black;'
-                                        
-                                        df_estilizado = df_saida.style.apply(
-                                            lambda df: pd.DataFrame(
-                                                [[destacar_preenchidos_estilo(df.iat[r, c], r, c) for c in range(df.shape[1])] for r in range(df.shape[0])],
-                                                index=df.index,
-                                                columns=df.columns
-                                            ),
-                                            axis=None
-                                        ).format(lambda x: f"{x:.4f}" if pd.notna(x) else "")
-                                        
-                                        st.markdown("**Matriz Reconstruída (Branco = Observada | Preto = Preenchida):**")
-                                        st.dataframe(df_estilizado, use_container_width=True)
+                                                matriz_aluno = np.load(caminho_saida_aluno)
+                                                mascara_atual = np.load(caminho_mascara)
+                                                df_saida = pd.DataFrame(matriz_aluno)
+                                                
+                                                def destacar_preenchidos_estilo(val, row_idx, col_idx):
+                                                    try:
+                                                        if mascara_atual[row_idx, col_idx] == 0:
+                                                            return 'background-color: black; color: white;'
+                                                    except Exception:
+                                                        pass
+                                                    return 'background-color: white; color: black;'
+                                                
+                                                df_estilizado = df_saida.style.apply(
+                                                    lambda df: pd.DataFrame(
+                                                        [[destacar_preenchidos_estilo(df.iat[r, c], r, c) for c in range(df.shape[1])] for r in range(df.shape[0])],
+                                                        index=df.index,
+                                                        columns=df.columns
+                                                    ),
+                                                    axis=None
+                                                ).format(lambda x: f"{x:.4f}" if pd.notna(x) else "")
+                                                
+                                                st.markdown("**Matriz Reconstruída (Branco = Observada | Preto = Preenchida):**")
+                                                st.dataframe(df_estilizado, use_container_width=True)
 
-                                    except Exception as e:
-                                        st.error(f"**Visualização de Matriz Indisponível**: {e}")
+                                            except Exception as e:
+                                                st.error(f"**Visualização de Matriz Indisponível**: {e}")
+                        else:
+                            st.error(f"**Visualização Indisponível**: {status_tentativa}")
 
                     if st.button("🗑️ Deletar esta tentativa", key=f"btn_del_{tentativa_id}"):
                         try:
@@ -447,8 +451,14 @@ else:
                                     "— nada foi apagado."
                                 )
                             else:
-                                deletar_tentativa_historico(caminho_arquivo_codigo)
-                                st.success("Tentativa removida do banco e do histórico local.")
+                                removido_do_disco = deletar_tentativa_historico(caminho_arquivo_codigo)
+                                if removido_do_disco:
+                                    st.success("Tentativa removida do banco e do histórico local.")
+                                else:
+                                    st.warning(
+                                        "Tentativa removida do banco, mas a pasta local ainda não pôde "
+                                        "ser apagada (arquivo em uso). Ela será limpa numa próxima tentativa."
+                                    )
                                 st.rerun()
                         except Exception as e:
                             st.error(f"Falha ao deletar tentativa do banco de dados: {e}")
@@ -492,8 +502,14 @@ else:
                     if not apagado_no_banco:
                         st.error("Nenhuma submissão final encontrada no banco para esta equipe.")
                     else:
-                        deletar_codigo_final(equipe_id)
-                        st.success("Código final removido do banco e do disco.")
+                        removido_do_disco = deletar_codigo_final(equipe_id)
+                        if removido_do_disco:
+                            st.success("Código final removido do banco e do disco.")
+                        else:
+                            st.warning(
+                                "Submissão removida do banco, mas o arquivo local ainda não pôde "
+                                "ser apagado (arquivo em uso). Ele será limpo numa próxima tentativa."
+                            )
                         st.rerun()
                 except Exception as e:
                     st.error(f"Falha ao deletar submissão final: {e}")
@@ -530,14 +546,14 @@ else:
                     f.write(arquivo_oficial.getbuffer())
 
                 with st.spinner("Validando e avaliando o código final nas matrizes públicas..."):
+                    timestamp_oficial = time.strftime("%Y-%m-%d_%H-%M-%S")
                     #executar a avaliação para checar se o código é válido e extrair o NRMSE
-                    relatorio_oficial = avaliar_todas_as_matrizes(equipe_id, caminho_temp_oficial, banco_publico)
+                    relatorio_oficial = avaliar_todas_as_matrizes(equipe_id, caminho_temp_oficial, banco_publico, timestamp_oficial)
 
                 if "Sucesso" in relatorio_oficial["status_geral"]:
                     #copiar o código para o destino final
                     shutil.copy(caminho_temp_oficial, caminho_arquivo_final)
-                        
-                    timestamp_oficial = time.strftime("%Y-%m-%d_%H-%M-%S")
+                    
                     nrmse_oficial = relatorio_oficial["nrmse_medio_agregado"]
 
                     #calcular o hash SHA-256 do arquivo salvo e salvar os metadados

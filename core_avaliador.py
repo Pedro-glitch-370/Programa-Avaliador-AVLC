@@ -17,7 +17,7 @@ else:
 inicializar_banco()
 
 #função pra executar o código da equipe contra todas as matrizes
-def _tarefa_lote_processo(equipe_id, caminho_arquivo_py, banco_10_matrizes, fila_comunicacao):
+def _tarefa_lote_processo(equipe_id, caminho_arquivo_py, banco_10_matrizes, fila_comunicacao, timestamp_str):
     #definindo o limite de memória RAM
     if resource is not None:
         try:
@@ -71,7 +71,7 @@ def _tarefa_lote_processo(equipe_id, caminho_arquivo_py, banco_10_matrizes, fila
         tempo_total = 0.0
 
         #diretório para salvar as saídas da equipe
-        pasta_saidas = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}", f"saidas_{equipe_id}")
+        pasta_saidas = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}", f"tentativa_{timestamp_str}", "saidas")
         os.makedirs(pasta_saidas, exist_ok=True)
 
         #iterar pelas 10 matrizes no mesmo processo
@@ -113,19 +113,19 @@ def _tarefa_lote_processo(equipe_id, caminho_arquivo_py, banco_10_matrizes, fila
                 })
                 return
 
-            #procurar por valores infinitos
-            if not np.isfinite(matriz_saida).all():
-                fila_comunicacao.put({
-                    "status_geral": f"Reprovado na Matriz #{idx + 1}: Contém Valores Inválidos (Inf)",
-                    "mensagem_erro": "A matriz retornada possui valores infinitos (Inf).",
-                })
-                return
-
             #procurar por 'Not a Number's
             if np.isnan(matriz_saida).any():
                 fila_comunicacao.put({
                     "status_geral": f"Reprovado na Matriz #{idx + 1}: Contém Valores NaNs",
                     "mensagem_erro": "A matriz retornada possui valores NaN não preenchidos.",
+                })
+                return
+
+            #procurar por valores infinitos
+            if not np.isfinite(matriz_saida).all():
+                fila_comunicacao.put({
+                    "status_geral": f"Reprovado na Matriz #{idx + 1}: Contém Valores Inválidos (Inf)",
+                    "mensagem_erro": "A matriz retornada possui valores infinitos (Inf).",
                 })
                 return
 
@@ -172,7 +172,7 @@ def _tarefa_lote_processo(equipe_id, caminho_arquivo_py, banco_10_matrizes, fila
         })
 
 #função que orquestra um único processo isolado para a avaliação das matrizes
-def avaliar_todas_as_matrizes(equipe_id, caminho_arquivo_py, banco_10_matrizes, timeout_total_seg=30):
+def avaliar_todas_as_matrizes(equipe_id, caminho_arquivo_py, banco_10_matrizes, timestamp_str, timeout_total_seg=30):
     
     #cria um contexto de multiprocessamento configurado por spawn
     ctx = multiprocessing.get_context("spawn")
@@ -182,7 +182,7 @@ def avaliar_todas_as_matrizes(equipe_id, caminho_arquivo_py, banco_10_matrizes, 
     #instanciar o objeto do processo
     p = ctx.Process(
         target=_tarefa_lote_processo,
-        args=(equipe_id, caminho_arquivo_py, banco_10_matrizes, fila_comunicacao),
+        args=(equipe_id, caminho_arquivo_py, banco_10_matrizes, fila_comunicacao, timestamp_str),
     )
 
     #iniciar a execução do processo e travar a thread principal até acabar
@@ -216,20 +216,15 @@ def avaliar_todas_as_matrizes(equipe_id, caminho_arquivo_py, banco_10_matrizes, 
     return fila_comunicacao.get()
 
 #função pra salvar o código enviado e registrar o histórico
-def salvar_historico_local(caminho_codigo_enviado, relatorio, equipe_id):
+def salvar_historico_local(caminho_codigo_enviado, relatorio, equipe_id, timestamp_str):
     
     #criar o armazenamento persistente das submissões
-    diretorio_base = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}")
+    diretorio_base = os.path.join("historico_local_tentativas", f"equipe_{equipe_id}", f"tentativa_{timestamp_str}")
     os.makedirs(diretorio_base, exist_ok=True)
 
-    #criar subpasta para os códigos enviados
-    diretorio_codigos = os.path.join(diretorio_base, f"codigos_{equipe_id}")
-    os.makedirs(diretorio_codigos, exist_ok=True)
-
     #copiar o arquivo .py para a pasta de histórico
-    timestamp_str = time.strftime("%Y-%m-%d_%H-%M-%S")
     nome_codigo_salvo = f"codigo_{timestamp_str}.py"
-    caminho_destino_codigo = os.path.join(diretorio_codigos, nome_codigo_salvo)
+    caminho_destino_codigo = os.path.join(diretorio_base, nome_codigo_salvo)
     shutil.copy(caminho_codigo_enviado, caminho_destino_codigo)
 
     #extrair os dados do relatório retornado
